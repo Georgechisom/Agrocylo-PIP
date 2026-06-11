@@ -1,12 +1,12 @@
 # 🌾 Agrocylo Production Investment Platform
 
-A decentralized platform for agricultural financing and trade building on the Stellar Network.
+A decentralized platform for agricultural financing, investment, and trade. Connecting farmers and investors peer to peer, building on the Stellar Network.
 
 ## Overview
 
 Agrocylo brings together two core systems:
 
-- **[P2P Escrow Marketplace](https://github.com/Cylo-Traders/Agrocylo-Global)** for direct farmer–consumer transactions
+- **[P2P Escrow Marketplace](https://github.com/Cylo-Traders/Agrocylo-Global)** for direct farmer–consumer transactions and
 - **Production Investment Layer** for campaign-based agricultural funding
 
 This repository focuses on the Production Investment Layer, where users fund farming campaigns and share in harvest outcomes.
