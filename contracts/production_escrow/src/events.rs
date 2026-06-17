@@ -1,4 +1,5 @@
-use soroban_sdk::{symbol_short, Address, Env, Symbol};
+use crate::types::DisputeResolution;
+use soroban_sdk::{Address, Env, Symbol};
 
 pub fn emit_campaign_created(env: &Env, campaign_id: u64, farmer: Address, target_amount: i128) {
     let topics = (Symbol::new(env, "CampaignCreated"), campaign_id);
@@ -33,15 +34,34 @@ pub fn emit_harvest_reported(env: &Env, campaign_id: u64, farmer: Address) {
     env.events().publish(topics, payload);
 }
 
-pub fn emit_dispute_opened(env: &Env, campaign_id: u64, actor: Address, reason: Symbol) {
+pub fn emit_dispute_opened(env: &Env, campaign_id: u64, opener: Address, reason: Symbol) {
     let topics = (Symbol::new(env, "DisputeOpened"), campaign_id);
-    let payload = (actor, env.ledger().timestamp(), reason);
+    let payload = (
+        opener,
+        reason,
+        env.ledger().timestamp(),
+        env.ledger().sequence(),
+    );
     env.events().publish(topics, payload);
 }
 
-pub fn emit_dispute_resolved(env: &Env, campaign_id: u64, actor: Address, resolution: Symbol) {
+pub fn emit_dispute_resolved(
+    env: &Env,
+    campaign_id: u64,
+    admin: Address,
+    resolution: DisputeResolution,
+    payout_to_farmer: i128,
+    refundable_to_investors: i128,
+) {
     let topics = (Symbol::new(env, "DisputeResolved"), campaign_id);
-    let payload = (actor, env.ledger().timestamp(), resolution);
+    let payload = (
+        admin,
+        resolution,
+        payout_to_farmer,
+        refundable_to_investors,
+        env.ledger().timestamp(),
+        env.ledger().sequence(),
+    );
     env.events().publish(topics, payload);
 }
 
