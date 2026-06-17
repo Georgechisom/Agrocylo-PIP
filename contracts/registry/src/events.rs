@@ -1,5 +1,5 @@
-use crate::types::{ActivityAction, ActivityRecord};
-use soroban_sdk::{symbol_short, Address, Env};
+use crate::types::ActivityRecord;
+use soroban_sdk::{symbol_short, Address, Env, String};
 
 pub fn admin_updated(env: &Env, old_admin: Address, new_admin: Address) {
     env.events()
@@ -26,4 +26,14 @@ pub fn activity_recorded(env: &Env, campaign_id: u64, record: ActivityRecord) {
             record.ledger_sequence,
         ),
     );
+}
+
+pub fn farmer_registered(env: &Env, farmer: Address, name: String) {
+    env.events()
+        .publish((symbol_short!("farm_reg"),), (farmer, name));
+}
+
+pub fn campaign_registered(env: &Env, campaign_id: u64, farmer: Address, title: String) {
+    env.events()
+        .publish((symbol_short!("camp_reg"),), (campaign_id, farmer, title));
 }
