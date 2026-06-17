@@ -33,14 +33,30 @@ impl ProductionEscrowContract {
         storage::extend_instance_ttl(&env);
     }
 
-    pub fn create_campaign(env: Env, campaign_id: u64, farmer: Address, target_amount: i128) {
+    pub fn create_campaign(
+        env: Env,
+        campaign_id: u64,
+        farmer: Address,
+        target_amount: i128,
+        token_address: Address,
+        deadline: u64,
+        harvest_metadata: Symbol,
+    ) {
         if storage::has_campaign(&env, campaign_id) {
             panic!("campaign already exists");
         }
+        if target_amount <= 0 {
+            panic!("target amount must be greater than zero");
+        }
+
+        farmer.require_auth();
 
         let campaign = Campaign {
             farmer: farmer.clone(),
             target_amount,
+            token_address,
+            deadline,
+            harvest_metadata,
             total_funded: 0,
             released: 0,
             refundable: 0,
