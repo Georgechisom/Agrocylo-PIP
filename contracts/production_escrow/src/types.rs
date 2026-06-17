@@ -32,6 +32,9 @@ pub enum DisputeResolution {
 pub struct Campaign {
     pub farmer: Address,
     pub target_amount: i128,
+    pub token_address: Address,
+    pub deadline: u64,
+    pub harvest_metadata: Symbol,
     pub total_funded: i128,
     pub released: i128,
     pub refundable: i128,
