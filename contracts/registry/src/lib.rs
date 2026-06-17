@@ -1,10 +1,10 @@
 #![no_std]
 
+mod activity;
+mod admin;
+mod events;
 mod storage;
 mod types;
-mod events;
-mod admin;
-mod activity;
 
 pub use types::*;
 

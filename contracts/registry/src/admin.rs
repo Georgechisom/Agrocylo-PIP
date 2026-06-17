@@ -1,5 +1,5 @@
-use soroban_sdk::{Address, Env};
 use crate::{events, storage};
+use soroban_sdk::{Address, Env};
 
 pub fn initialize(env: &Env, admin: &Address) {
     if storage::has_admin(env) {
@@ -18,11 +18,11 @@ pub fn require_admin(env: &Env) {
 
 pub fn update_admin(env: &Env, new_admin: &Address) {
     require_admin(env);
-    
+
     let old_admin = storage::get_admin(env);
     storage::set_admin(env, new_admin);
     storage::extend_instance_ttl(env);
-    
+
     events::admin_updated(env, old_admin, new_admin.clone());
 }
 
