@@ -1,0 +1,299 @@
+# ProductionEscrowContract & RegistryContract Integration
+
+This document describes how the `ProductionEscrowContract` and `RegistryContract` interact during the campaign lifecycle, which contract owns each piece of state, how events should be indexed, and example transaction flows.
+
+## Overview
+
+- **ProductionEscrowContract** owns campaign financial state (funding, escrow, disputes, settlements) and emits canonical events for every state change.
+- **RegistryContract** owns the audit trail of campaign activities and access-control lists (admin, approved contracts). It is the source of truth for *who* did *what* and *when*.
+
+In the intended integration, `ProductionEscrowContract` (or an authorized backend service acting on its behalf) calls `RegistryContract::record_activity` after each significant lifecycle step. The `ProductionEscrowContract` address must first be registered in the `RegistryContract` via `approve_contract`.
+
+## Contract Responsibilities
+
+### ProductionEscrowContract
+
+| Responsibility | Implementation |
+|----------------|----------------|
+| Campaign creation & metadata | `create_campaign` |
+| Receiving investor contributions | `receive_contribution` |
+| Marking a campaign as fully funded | `complete_funding` |
+| Releasing tranches to the farmer | `release_tranche` |
+| Recording harvest milestones | `report_harvest` |
+| Opening & resolving disputes | `open_dispute`, `resolve_dispute` |
+| Investor refunds after resolution | `claim_refund` |
+| Final campaign settlement | `settle_campaign` |
+| Event emission for all state transitions | Soroban events (see table below) |
+
+### RegistryContract
+
+| Responsibility | Implementation |
+|----------------|----------------|
+| Admin management | `initialize`, `update_admin`, `get_admin` |
+| Approved-contract allowlist | `approve_contract`, `revoke_contract`, `is_contract_approved` |
+| Recording campaign audit activities | `record_activity` |
+| Retrieving campaign activity history | `get_campaign_activities` |
+| Event emission for registry changes | Soroban events (see table below) |
+
+## State Ownership
+
+| State | Owner | Storage Type | Key / Notes |
+|-------|-------|--------------|-------------|
+| Admin address | RegistryContract | Instance | `DataKey::Admin` |
+| Approved contract list | RegistryContract | Instance | `DataKey::ApprovedContract(Address)` |
+| Campaign activity history | RegistryContract | Persistent | `DataKey::CampaignActivities(u64)` |
+| Campaign metadata (farmer, target, token, deadline, harvest) | ProductionEscrowContract | Persistent | `DataKey::Campaign(u64)` |
+| Campaign financials (`total_funded`, `released`, `refundable`) | ProductionEscrowContract | Persistent | Inside `Campaign` struct |
+| Campaign status | ProductionEscrowContract | Persistent | `Campaign.status` (`CampaignStatus`) |
+| Investor contribution ledger | ProductionEscrowContract | Persistent | `DataKey::Contribution(u64, Address)` |
+| Dispute record | ProductionEscrowContract | Persistent | `DataKey::Dispute(u64)` |
+
+> **Rule of thumb:** Financial and dispute state lives in `ProductionEscrowContract`. Audit and access-control state lives in `RegistryContract`.
+
+## Campaign Lifecycle
+
+The logical lifecycle maps to the contract statuses as follows:
+
+| Logical Phase | Contract Status | Triggering Escrow Method |
+|---------------|-----------------|--------------------------|
+| **Funding** | `Active` | `create_campaign` |
+| **Funded** | `Funded` | `complete_funding` |
+| **InProduction** | `Funded` | `release_tranche` (one or more calls) |
+| **Harvested** | `Funded` | `report_harvest` |
+| **Settled** | `Settled` | `settle_campaign` |
+| **Disputed** | `Disputed` | `open_dispute` |
+| **Resolved** | `Resolved` | `resolve_dispute` |
+
+> **Note:** `Failed` is not a distinct on-chain status. A campaign that never reaches its target by the deadline is considered *Failed* off-chain by the backend/indexer.
+
+### Lifecycle Diagram
+
+```
+[Funding / Active]
+       |
+       v
+[Funded] <-----------------------+
+   |                             |
+   |--[release_tranche]--> [InProduction]
+   |                             |
+   |--[report_harvest] ---> [Harvested]
+   |                             |
+   v                             |
+[Settled]                       |
+   |                             |
+   | (alternative paths)         |
+   |                             |
+   +--[open_dispute] --------> [Disputed]
+   |                             |
+   |<--[resolve_dispute] ---- [Resolved]
+   |                             |
+   +--[claim_refund] --------> [RefundClaimed]*
+```
+
+\* `RefundClaimed` is a per-investor action, not a global campaign status transition.
+
+## Expected Call Flow Between Contracts
+
+The table below shows the expected cross-contract calls. After each escrow action, the escrow contract (or an approved orchestrator) should invoke `RegistryContract::record_activity` to append an audit entry.
+
+| Escrow Action | Registry Call | `ActivityAction` | Actor |
+|---------------|---------------|------------------|-------|
+| `create_campaign` | `record_activity(campaign_id, farmer, CampaignCreated)` | `CampaignCreated` | Farmer |
+| `complete_funding` | `record_activity(campaign_id, farmer, CampaignFunded)` | `CampaignFunded` | Farmer or Admin |
+| `release_tranche` | `record_activity(campaign_id, recipient, FundsReleased)` | `FundsReleased` | Farmer (recipient) |
+| `report_harvest` | `record_activity(campaign_id, farmer, HarvestReported)` | `HarvestReported` | Farmer |
+| `open_dispute` | `record_activity(campaign_id, opener, DisputeInitiated)` | `DisputeInitiated` | Investor / Farmer / Admin |
+| `resolve_dispute` | `record_activity(campaign_id, admin, DisputeResolved)` | `DisputeResolved` | Admin |
+| `settle_campaign` | `record_activity(campaign_id, farmer, CampaignSettled)` | `CampaignSettled` | Farmer |
+| `claim_refund` | `record_activity(campaign_id, investor, CampaignStatusChanged)` | `CampaignStatusChanged` | Investor |
+
+> **Prerequisite:** The `ProductionEscrowContract` address must be `approve_contract`'d in the `RegistryContract` so that activity recording can proceed without requiring per-transaction user authorization inside the registry.
+
+## Event Indexing Responsibilities
+
+Backend indexers should consume events from **both** contracts. The recommended approach is:
+
+1. **Reconstruct financial state** from `ProductionEscrowContract` events.
+2. **Verify audit trail** against `RegistryContract` events (and/or on-chain `get_campaign_activities`).
+3. **Track access-control changes** from `RegistryContract` events.
+
+### ProductionEscrowContract Events
+
+| Event Symbol | Topics | Payload | When to Index |
+|--------------|--------|---------|---------------|
+| `CampaignCreated` | `("CampaignCreated", campaign_id)` | `(farmer, timestamp, target_amount)` | New campaign available for funding. |
+| `ContributionReceived` | `("ContributionReceived", campaign_id)` | `(investor, timestamp, amount)` | Update total funded amount and investor position. |
+| `CampaignFunded` | `("CampaignFunded", campaign_id)` | `(timestamp, total_funded)` | Campaign moves from `Active` to `Funded`. |
+| `TrancheReleased` | `("TrancheReleased", campaign_id)` | `(recipient, timestamp, amount)` | Escrow balance decreases; farmer received funds. |
+| `HarvestReported` | `("HarvestReported", campaign_id)` | `(farmer, timestamp)` | Harvest milestone reached. |
+| `DisputeOpened` | `("DisputeOpened", campaign_id)` | `(opener, reason, timestamp, ledger_sequence)` | Campaign status locked to `Disputed`. |
+| `DisputeResolved` | `("DisputeResolved", campaign_id)` | `(admin, resolution, payout_to_farmer, refundable_to_investors, timestamp, ledger_sequence)` | Campaign status moves to `Resolved`. |
+| `RefundClaimed` | `("RefundClaimed", campaign_id)` | `(investor, timestamp, amount)` | Individual investor refunded; zero out contribution. |
+| `CampaignSettled` | `("CampaignSettled", campaign_id)` | `(farmer, timestamp, final_amount)` | Campaign moves to `Settled`; final payout recorded. |
+
+### RegistryContract Events
+
+| Event Symbol | Topics | Payload | When to Index |
+|--------------|--------|---------|---------------|
+| `act_rec` | `("act_rec", campaign_id)` | `(actor, action_type, timestamp, ledger_sequence)` | New audit record appended. Useful for off-chain audit dashboards. |
+| `cont_appr` | `("cont_appr",)` | `contract` | A contract was approved to record activities. |
+| `cont_revo` | `("cont_revo",)` | `contract` | A contract approval was revoked. |
+| `admin_upd` | `("admin_upd",)` | `(old_admin, new_admin)` | Registry admin changed. |
+
+## Example Transaction Flows
+
+### 1. Campaign Creation
+
+```text
+Farmer
+  |
+  |--(1)--> ProductionEscrowContract::create_campaign(
+  |            campaign_id, farmer, target_amount,
+  |            token_address, deadline, harvest_metadata
+  |         )
+  |
+  |        [Escrow stores Campaign { status: Active }]
+  |        [Escrow emits CampaignCreated event]
+  |
+  |--(2)--> RegistryContract::record_activity(
+  |            campaign_id, farmer, ActivityAction::CampaignCreated
+  |         )
+  |
+  |        [Registry appends ActivityRecord]
+  |        [Registry emits act_rec event]
+```
+
+### 2. Funding
+
+```text
+Investor 1
+  |
+  |--(1a)--> ProductionEscrowContract::receive_contribution(
+  |             campaign_id, investor1, 600
+  |          )
+  |          [Escrow updates total_funded & contribution]
+  |          [Escrow emits ContributionReceived]
+
+Investor 2
+  |
+  |--(1b)--> ProductionEscrowContract::receive_contribution(
+  |             campaign_id, investor2, 400
+  |          )
+  |          [Escrow updates total_funded & contribution]
+  |          [Escrow emits ContributionReceived]
+
+Backend / Admin
+  |
+  |--(2)--> ProductionEscrowContract::complete_funding(
+  |            campaign_id, total_funded=1000
+  |         )
+  |         [Escrow sets status = Funded]
+  |         [Escrow emits CampaignFunded]
+  |
+  |--(3)--> RegistryContract::record_activity(
+  |            campaign_id, farmer, ActivityAction::CampaignFunded
+  |         )
+```
+
+### 3. Settlement (Happy Path)
+
+```text
+Farmer
+  |
+  |--(1)--> ProductionEscrowContract::report_harvest(campaign_id, farmer)
+  |         [Escrow emits HarvestReported]
+  |
+  |--(2)--> RegistryContract::record_activity(
+  |            campaign_id, farmer, ActivityAction::HarvestReported
+  |         )
+  |
+  |--(3)--> ProductionEscrowContract::settle_campaign(
+  |            campaign_id, farmer, final_amount=1000
+  |         )
+  |         [Escrow sets status = Settled, released += 1000]
+  |         [Escrow emits CampaignSettled]
+  |
+  |--(4)--> RegistryContract::record_activity(
+  |            campaign_id, farmer, ActivityAction::CampaignSettled
+  |         )
+```
+
+### 4. Dispute Resolution → Refund
+
+```text
+Investor 1
+  |
+  |--(1)--> ProductionEscrowContract::open_dispute(
+  |            campaign_id, investor1, reason="Delay"
+  |         )
+  |         [Escrow sets status = Disputed]
+  |         [Escrow emits DisputeOpened]
+  |
+  |--(2)--> RegistryContract::record_activity(
+  |            campaign_id, investor1, ActivityAction::DisputeInitiated
+  |         )
+
+Admin
+  |
+  |--(3)--> ProductionEscrowContract::resolve_dispute(
+  |            campaign_id, PartialSettlement, payout_amount=300
+  |         )
+  |         [Escrow sets status = Resolved]
+  |         [released = 300, refundable = 700]
+  |         [Escrow emits DisputeResolved]
+  |
+  |--(4)--> RegistryContract::record_activity(
+  |            campaign_id, admin, ActivityAction::DisputeResolved
+  |         )
+
+Investor 1
+  |
+  |--(5a)--> ProductionEscrowContract::claim_refund(campaign_id, investor1)
+  |          [Pro-rata share: 600 * 700 / 1000 = 420]
+  |          [Escrow zeros contribution; emits RefundClaimed]
+
+Investor 2
+  |
+  |--(5b)--> ProductionEscrowContract::claim_refund(campaign_id, investor2)
+  |          [Pro-rata share: 400 * 700 / 1000 = 280]
+  |          [Escrow zeros contribution; emits RefundClaimed]
+```
+
+## Public Method Reference
+
+### ProductionEscrowContract
+
+- `initialize(env: Env, admin: Address)`
+- `create_campaign(env: Env, campaign_id: u64, farmer: Address, target_amount: i128, token_address: Address, deadline: u64, harvest_metadata: Symbol)`
+- `receive_contribution(env: Env, campaign_id: u64, investor: Address, amount: i128)`
+- `complete_funding(env: Env, campaign_id: u64, total_funded: i128)`
+- `release_tranche(env: Env, campaign_id: u64, recipient: Address, amount: i128)`
+- `report_harvest(env: Env, campaign_id: u64, farmer: Address)`
+- `open_dispute(env: Env, campaign_id: u64, opener: Address, reason: Symbol)`
+- `resolve_dispute(env: Env, campaign_id: u64, resolution: DisputeResolution, payout_amount: i128)`
+- `claim_refund(env: Env, campaign_id: u64, investor: Address)`
+- `settle_campaign(env: Env, campaign_id: u64, farmer: Address, final_amount: i128)`
+- `get_campaign(env: Env, campaign_id: u64) -> Campaign`
+- `get_dispute(env: Env, campaign_id: u64) -> Dispute`
+
+### RegistryContract
+
+- `initialize(env: Env, admin: Address)`
+- `update_admin(env: Env, new_admin: Address)`
+- `get_admin(env: Env) -> Address`
+- `approve_contract(env: Env, contract: Address)`
+- `revoke_contract(env: Env, contract: Address)`
+- `is_contract_approved(env: Env, contract: Address) -> bool`
+- `record_activity(env: Env, campaign_id: u64, actor: Address, action_type: ActivityAction)`
+- `get_campaign_activities(env: Env, campaign_id: u64) -> Vec<ActivityRecord>`
+
+## Acceptance Criteria Checklist
+
+- [x] Integration documentation covers the expected call flow between contracts.
+- [x] Each piece of state is assigned to a contract owner.
+- [x] Event indexing responsibilities are documented for both contracts.
+- [x] Lifecycle diagram and ordered lifecycle list are included.
+- [x] Example transaction flows provided for campaign creation, funding, settlement, refund, and dispute resolution.
+- [x] Documented lifecycle matches `Funding -> Funded -> InProduction -> Harvested -> Settled`, with `Failed` and `Disputed` alternatives.
+- [x] Public method names match the interfaces defined in the contract source code.
+- [x] Backend indexer consumption patterns are clarified.
