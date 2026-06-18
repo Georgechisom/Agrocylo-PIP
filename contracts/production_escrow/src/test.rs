@@ -15,8 +15,6 @@ struct Setup {
     campaign_id: u64,
 }
 
-/// Build a fully funded campaign (target 1000, contributions 600 + 400, no
-/// tranche released) so escrow_held == 1000.
 fn funded_campaign() -> Setup {
     let env = Env::default();
     env.mock_all_auths();
@@ -75,7 +73,6 @@ fn test_open_dispute_records_fields_and_status() {
     let campaign = s.client.get_campaign(&s.campaign_id);
     assert_eq!(campaign.status, CampaignStatus::Disputed);
 
-    // DisputeOpened event emitted last.
     let events = s.env.events().all();
     let event = events.last().unwrap();
     assert_eq!(
@@ -170,8 +167,6 @@ fn test_resolve_unauthorized_fails() {
     s.client
         .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
 
-    // Clear all mocked authorizations: the admin's require_auth is no longer
-    // satisfied, so resolve must fail.
     s.env.mock_auths(&[]);
     s.client
         .resolve_dispute(&s.campaign_id, &DisputeResolution::FullPayout, &0i128);
@@ -211,8 +206,6 @@ fn test_claim_refund_full_refund_returns_contribution() {
         event.1,
         (Symbol::new(&s.env, "RefundClaimed"), s.campaign_id).into_val(&s.env)
     );
-    // investor1 refunded 600 (== contribution); contribution zeroed so a second
-    // claim has nothing left.
     let err = s.client.try_claim_refund(&s.campaign_id, &s.investor1);
     assert!(err.is_err());
 }
@@ -225,8 +218,6 @@ fn test_claim_refund_partial_settlement_is_pro_rata() {
     s.client
         .resolve_dispute(&s.campaign_id, &DisputeResolution::PartialSettlement, &300i128);
 
-    // refundable pool = 700, basis = 1000.
-    // investor1: 600 * 700 / 1000 = 420; investor2: 400 * 700 / 1000 = 280; sum = 700.
     s.client.claim_refund(&s.campaign_id, &s.investor1);
     let event = s.env.events().all().last().unwrap();
     assert_eq!(
@@ -235,7 +226,6 @@ fn test_claim_refund_partial_settlement_is_pro_rata() {
     );
     s.client.claim_refund(&s.campaign_id, &s.investor2);
 
-    // Both contributions are now zeroed; no over-payment beyond the pool.
     assert!(s.client.try_claim_refund(&s.campaign_id, &s.investor1).is_err());
     assert!(s.client.try_claim_refund(&s.campaign_id, &s.investor2).is_err());
 }

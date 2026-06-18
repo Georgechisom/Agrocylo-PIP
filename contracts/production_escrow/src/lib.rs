@@ -137,7 +137,6 @@ impl ProductionEscrowContract {
             panic!("campaign not disputable");
         }
 
-        // Only the farmer, a contributing investor, or the admin may open a dispute.
         let is_farmer = campaign.farmer == opener;
         let is_contributor = storage::get_contribution(&env, campaign_id, &opener) > 0;
         let is_admin = storage::has_admin(&env) && storage::get_admin(&env) == opener;
@@ -243,8 +242,6 @@ impl ProductionEscrowContract {
             panic!("nothing to refund");
         }
 
-        // Fixed-ratio pro-rata share against the immutable total_funded basis, so
-        // the sum of all investor claims can never exceed the refundable pool.
         let share = contributed * campaign.refundable / campaign.total_funded;
         if share <= 0 {
             panic!("nothing to refund");
@@ -280,7 +277,6 @@ impl ProductionEscrowContract {
 
         emit_campaign_settled(&env, campaign_id, farmer, final_amount);
     }
-
     pub fn get_campaign(env: Env, campaign_id: u64) -> Campaign {
         storage::get_campaign(&env, campaign_id)
     }
