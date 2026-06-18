@@ -1,146 +1,467 @@
-use crate::{CampaignStatus, ProductionEscrowContract, ProductionEscrowContractClient};
-use soroban_sdk::{testutils::Address as _, Address, Env};
+#![cfg(test)]
 
-fn create_test_env() -> (Env, Address, ProductionEscrowContractClient<'static>) {
+use super::*;
+use soroban_sdk::{
+    testutils::{Address as _, Events},
+    Address, Env, IntoVal, Symbol,
+};
+
+struct Setup {
+    env: Env,
+    client: ProductionEscrowContractClient<'static>,
+    farmer: Address,
+    investor1: Address,
+    investor2: Address,
+    campaign_id: u64,
+}
+
+fn funded_campaign() -> Setup {
     let env = Env::default();
     env.mock_all_auths();
 
-    let farmer = Address::generate(&env);
     let contract_id = env.register_contract(None, ProductionEscrowContract);
     let client = ProductionEscrowContractClient::new(&env, &contract_id);
 
-    (env, farmer, client)
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let investor1 = Address::generate(&env);
+    let investor2 = Address::generate(&env);
+    let campaign_id = 1u64;
+    let token_address = Address::generate(&env);
+    let deadline = 1000000u64;
+    let harvest_metadata = Symbol::new(&env, "maize");
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &campaign_id,
+        &farmer,
+        &1000i128,
+        &token_address,
+        &deadline,
+        &harvest_metadata,
+    );
+    client.receive_contribution(&campaign_id, &investor1, &600i128);
+    client.receive_contribution(&campaign_id, &investor2, &400i128);
+    client.complete_funding(&campaign_id, &1000i128);
+
+    Setup {
+        env,
+        client,
+        farmer,
+        investor1,
+        investor2,
+        campaign_id,
+    }
 }
 
 #[test]
-fn test_initialize() {
-    let (_env, _farmer, client) = create_test_env();
-    client.initialize();
+fn test_open_dispute_records_fields_and_status() {
+    let s = funded_campaign();
+
+    let reason = Symbol::new(&s.env, "Delay");
+    s.client.open_dispute(&s.campaign_id, &s.investor1, &reason);
+
+    let dispute = s.client.get_dispute(&s.campaign_id);
+    assert_eq!(dispute.campaign_id, s.campaign_id);
+    assert_eq!(dispute.opener, s.investor1);
+    assert_eq!(dispute.reason, reason);
+    assert_eq!(dispute.status, DisputeStatus::Open);
+    assert_eq!(dispute.resolution, DisputeResolution::Pending);
+    assert_eq!(dispute.timestamp, s.env.ledger().timestamp());
+    assert_eq!(dispute.ledger_sequence, s.env.ledger().sequence());
+
+    let campaign = s.client.get_campaign(&s.campaign_id);
+    assert_eq!(campaign.status, CampaignStatus::Disputed);
+
+    let events = s.env.events().all();
+    let event = events.last().unwrap();
+    assert_eq!(
+        event.1,
+        (Symbol::new(&s.env, "DisputeOpened"), s.campaign_id).into_val(&s.env)
+    );
 }
 
 #[test]
-fn test_create_campaign() {
-    let (_env, farmer, client) = create_test_env();
-    client.initialize();
-
-    let goal: i128 = 1000;
-    let deadline: u64 = 1000000;
-    let campaign_id = client.create_campaign(&farmer, &goal, &deadline);
-
-    assert_eq!(campaign_id, 1);
+fn test_farmer_can_open_dispute() {
+    let s = funded_campaign();
+    s.client
+        .open_dispute(&s.campaign_id, &s.farmer, &Symbol::new(&s.env, "Quality"));
+    assert_eq!(
+        s.client.get_campaign(&s.campaign_id).status,
+        CampaignStatus::Disputed
+    );
 }
 
 #[test]
-fn test_get_campaign() {
-    let (_env, farmer, client) = create_test_env();
-    client.initialize();
+#[should_panic(expected = "not authorized to open dispute")]
+fn test_open_dispute_unauthorized_fails() {
+    let s = funded_campaign();
+    let stranger = Address::generate(&s.env);
+    s.client
+        .open_dispute(&s.campaign_id, &stranger, &Symbol::new(&s.env, "Nope"));
+}
 
-    let goal: i128 = 1000;
-    let deadline: u64 = 1000000;
-    let campaign_id = client.create_campaign(&farmer, &goal, &deadline);
+#[test]
+fn test_resolve_full_refund() {
+    let s = funded_campaign();
+    s.client
+        .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
+
+    s.client
+        .resolve_dispute(&s.campaign_id, &DisputeResolution::FullRefund, &0i128);
+
+    let campaign = s.client.get_campaign(&s.campaign_id);
+    assert_eq!(campaign.released, 0);
+    assert_eq!(campaign.refundable, 1000);
+    assert_eq!(campaign.status, CampaignStatus::Resolved);
+
+    let dispute = s.client.get_dispute(&s.campaign_id);
+    assert_eq!(dispute.status, DisputeStatus::Resolved);
+    assert_eq!(dispute.resolution, DisputeResolution::FullRefund);
+
+    let events = s.env.events().all();
+    let event = events.last().unwrap();
+    assert_eq!(
+        event.1,
+        (Symbol::new(&s.env, "DisputeResolved"), s.campaign_id).into_val(&s.env)
+    );
+}
+
+#[test]
+fn test_resolve_partial_settlement() {
+    let s = funded_campaign();
+    s.client
+        .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
+
+    s.client
+        .resolve_dispute(&s.campaign_id, &DisputeResolution::PartialSettlement, &300i128);
+
+    let campaign = s.client.get_campaign(&s.campaign_id);
+    assert_eq!(campaign.released, 300);
+    assert_eq!(campaign.refundable, 700);
+    assert_eq!(campaign.status, CampaignStatus::Resolved);
+
+    let dispute = s.client.get_dispute(&s.campaign_id);
+    assert_eq!(dispute.resolution, DisputeResolution::PartialSettlement);
+}
+
+#[test]
+fn test_resolve_full_payout() {
+    let s = funded_campaign();
+    s.client
+        .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
+
+    s.client
+        .resolve_dispute(&s.campaign_id, &DisputeResolution::FullPayout, &0i128);
+
+    let campaign = s.client.get_campaign(&s.campaign_id);
+    assert_eq!(campaign.released, 1000);
+    assert_eq!(campaign.refundable, 0);
+    assert_eq!(campaign.status, CampaignStatus::Resolved);
+}
+
+#[test]
+#[should_panic]
+fn test_resolve_unauthorized_fails() {
+    let s = funded_campaign();
+    s.client
+        .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
+
+    s.env.mock_auths(&[]);
+    s.client
+        .resolve_dispute(&s.campaign_id, &DisputeResolution::FullPayout, &0i128);
+}
+
+#[test]
+#[should_panic(expected = "campaign is disputed")]
+fn test_disputed_campaign_blocks_settlement() {
+    let s = funded_campaign();
+    s.client
+        .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
+
+    s.client.settle_campaign(&s.campaign_id, &s.farmer, &500i128);
+}
+
+#[test]
+#[should_panic(expected = "campaign not funded")]
+fn test_disputed_campaign_blocks_tranche_release() {
+    let s = funded_campaign();
+    s.client
+        .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
+
+    s.client.release_tranche(&s.campaign_id, &s.farmer, &100i128);
+}
+
+#[test]
+fn test_claim_refund_full_refund_returns_contribution() {
+    let s = funded_campaign();
+    s.client
+        .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
+    s.client
+        .resolve_dispute(&s.campaign_id, &DisputeResolution::FullRefund, &0i128);
+
+    s.client.claim_refund(&s.campaign_id, &s.investor1);
+    let event = s.env.events().all().last().unwrap();
+    assert_eq!(
+        event.1,
+        (Symbol::new(&s.env, "RefundClaimed"), s.campaign_id).into_val(&s.env)
+    );
+    let err = s.client.try_claim_refund(&s.campaign_id, &s.investor1);
+    assert!(err.is_err());
+}
+
+#[test]
+fn test_claim_refund_partial_settlement_is_pro_rata() {
+    let s = funded_campaign();
+    s.client
+        .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
+    s.client
+        .resolve_dispute(&s.campaign_id, &DisputeResolution::PartialSettlement, &300i128);
+
+    s.client.claim_refund(&s.campaign_id, &s.investor1);
+    let event = s.env.events().all().last().unwrap();
+    assert_eq!(
+        event.1,
+        (Symbol::new(&s.env, "RefundClaimed"), s.campaign_id).into_val(&s.env)
+    );
+    s.client.claim_refund(&s.campaign_id, &s.investor2);
+
+    assert!(s.client.try_claim_refund(&s.campaign_id, &s.investor1).is_err());
+    assert!(s.client.try_claim_refund(&s.campaign_id, &s.investor2).is_err());
+}
+
+#[test]
+fn test_happy_path_settlement() {
+    let s = funded_campaign();
+    s.client.report_harvest(&s.campaign_id, &s.farmer);
+    s.client.settle_campaign(&s.campaign_id, &s.farmer, &1000i128);
+
+    let campaign = s.client.get_campaign(&s.campaign_id);
+    assert_eq!(campaign.released, 1000);
+    assert_eq!(campaign.status, CampaignStatus::Settled);
+}
+
+#[test]
+fn test_create_campaign_successful() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let token_address = Address::generate(&env);
+    let campaign_id = 42u64;
+    let target_amount = 5000i128;
+    let deadline = 2000000u64;
+    let harvest_metadata = Symbol::new(&env, "wheat");
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &campaign_id,
+        &farmer,
+        &target_amount,
+        &token_address,
+        &deadline,
+        &harvest_metadata,
+    );
 
     let campaign = client.get_campaign(&campaign_id);
-    assert_eq!(campaign.id, campaign_id);
     assert_eq!(campaign.farmer, farmer);
-    assert_eq!(campaign.goal_amount, goal);
-    assert_eq!(campaign.raised_amount, 0);
+    assert_eq!(campaign.target_amount, target_amount);
+    assert_eq!(campaign.token_address, token_address);
     assert_eq!(campaign.deadline, deadline);
-    assert_eq!(campaign.status, CampaignStatus::Funding);
+    assert_eq!(campaign.harvest_metadata, harvest_metadata);
+    assert_eq!(campaign.total_funded, 0);
+    assert_eq!(campaign.released, 0);
+    assert_eq!(campaign.refundable, 0);
+    assert_eq!(campaign.status, CampaignStatus::Active);
 }
 
 #[test]
-fn test_get_campaign_status() {
-    let (_env, farmer, client) = create_test_env();
-    client.initialize();
+fn test_create_campaign_stores_all_metadata() {
+    let env = Env::default();
+    env.mock_all_auths();
 
-    let campaign_id = client.create_campaign(&farmer, &1000, &1000000);
-    let status = client.get_campaign_status(&campaign_id);
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
 
-    assert_eq!(status, CampaignStatus::Funding);
-}
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let token_address = Address::generate(&env);
+    let campaign_id = 100u64;
+    let target_amount = 10000i128;
+    let deadline = 3000000u64;
+    let harvest_metadata = Symbol::new(&env, "rice");
 
-#[test]
-fn test_create_multiple_campaigns() {
-    let (_env, farmer, client) = create_test_env();
-    client.initialize();
+    client.initialize(&admin);
+    client.create_campaign(
+        &campaign_id,
+        &farmer,
+        &target_amount,
+        &token_address,
+        &deadline,
+        &harvest_metadata,
+    );
 
-    let id1 = client.create_campaign(&farmer, &1000, &1000000);
-    let id2 = client.create_campaign(&farmer, &2000, &2000000);
-
-    assert_eq!(id1, 1);
-    assert_eq!(id2, 2);
-
-    let c2 = client.get_campaign(&id2);
-    assert_eq!(c2.goal_amount, 2000);
-}
-
-#[test]
-fn test_campaign_status_funding_after_creation() {
-    let (_env, farmer, client) = create_test_env();
-    client.initialize();
-
-    let campaign_id = client.create_campaign(&farmer, &1000, &1000000);
-    let status = client.get_campaign_status(&campaign_id);
-
-    assert_eq!(status, CampaignStatus::Funding);
-}
-
-#[test]
-fn test_campaign_full_lifecycle() {
-    let (_env, farmer, client) = create_test_env();
-    client.initialize();
-
-    let investor = Address::generate(&_env);
-    let campaign_id = client.create_campaign(&farmer, &1000, &1000000);
-
-    assert_eq!(client.get_campaign_status(&campaign_id), CampaignStatus::Funding);
-
-    client.fund_campaign(&campaign_id, &investor, &500);
-    assert_eq!(client.get_campaign_status(&campaign_id), CampaignStatus::Funded);
-
-    client.start_production(&campaign_id);
-    assert_eq!(client.get_campaign_status(&campaign_id), CampaignStatus::InProduction);
-
-    client.report_harvest(&campaign_id);
-    assert_eq!(client.get_campaign_status(&campaign_id), CampaignStatus::Harvested);
-
-    client.settle_campaign(&campaign_id);
-    assert_eq!(client.get_campaign_status(&campaign_id), CampaignStatus::Settled);
-}
-
-#[test]
-fn test_campaign_refund() {
-    let (_env, farmer, client) = create_test_env();
-    client.initialize();
-
-    let campaign_id = client.create_campaign(&farmer, &1000, &1000000);
-    assert_eq!(client.get_campaign_status(&campaign_id), CampaignStatus::Funding);
-
-    client.refund_campaign(&campaign_id);
-    assert_eq!(client.get_campaign_status(&campaign_id), CampaignStatus::Failed);
-}
-
-#[test]
-fn test_campaign_dispute() {
-    let (_env, farmer, client) = create_test_env();
-    client.initialize();
-
-    let campaign_id = client.create_campaign(&farmer, &1000, &1000000);
-    assert_eq!(client.get_campaign_status(&campaign_id), CampaignStatus::Funding);
-
-    client.enter_dispute(&campaign_id);
-    assert_eq!(client.get_campaign_status(&campaign_id), CampaignStatus::Disputed);
-}
-
-#[test]
-fn test_campaign_raised_amount_tracking() {
-    let (_env, farmer, client) = create_test_env();
-    client.initialize();
-
-    let investor = Address::generate(&_env);
-    let campaign_id = client.create_campaign(&farmer, &1000, &1000000);
-
-    client.fund_campaign(&campaign_id, &investor, &300);
     let campaign = client.get_campaign(&campaign_id);
-    assert_eq!(campaign.raised_amount, 300);
+    assert_eq!(campaign.token_address, token_address);
+    assert_eq!(campaign.deadline, deadline);
+    assert_eq!(campaign.harvest_metadata, harvest_metadata);
+}
+
+#[test]
+#[should_panic(expected = "campaign already exists")]
+fn test_create_campaign_duplicate_id_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let token_address = Address::generate(&env);
+    let campaign_id = 1u64;
+    let target_amount = 1000i128;
+    let deadline = 1000000u64;
+    let harvest_metadata = Symbol::new(&env, "corn");
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &campaign_id,
+        &farmer,
+        &target_amount,
+        &token_address,
+        &deadline,
+        &harvest_metadata,
+    );
+
+    client.create_campaign(
+        &campaign_id,
+        &farmer,
+        &target_amount,
+        &token_address,
+        &deadline,
+        &harvest_metadata,
+    );
+}
+
+#[test]
+#[should_panic(expected = "target amount must be greater than zero")]
+fn test_create_campaign_zero_target_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let token_address = Address::generate(&env);
+    let campaign_id = 1u64;
+    let deadline = 1000000u64;
+    let harvest_metadata = Symbol::new(&env, "soybean");
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &campaign_id,
+        &farmer,
+        &0i128,
+        &token_address,
+        &deadline,
+        &harvest_metadata,
+    );
+}
+
+#[test]
+#[should_panic(expected = "target amount must be greater than zero")]
+fn test_create_campaign_negative_target_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let token_address = Address::generate(&env);
+    let campaign_id = 1u64;
+    let deadline = 1000000u64;
+    let harvest_metadata = Symbol::new(&env, "barley");
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &campaign_id,
+        &farmer,
+        &-500i128,
+        &token_address,
+        &deadline,
+        &harvest_metadata,
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_create_campaign_requires_farmer_authorization() {
+    let env = Env::default();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let token_address = Address::generate(&env);
+    let campaign_id = 1u64;
+    let target_amount = 1000i128;
+    let deadline = 1000000u64;
+    let harvest_metadata = Symbol::new(&env, "millet");
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+
+    env.mock_auths(&[]);
+    client.create_campaign(
+        &campaign_id,
+        &farmer,
+        &target_amount,
+        &token_address,
+        &deadline,
+        &harvest_metadata,
+    );
+}
+
+#[test]
+fn test_create_campaign_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let token_address = Address::generate(&env);
+    let campaign_id = 123u64;
+    let target_amount = 2500i128;
+    let deadline = 1500000u64;
+    let harvest_metadata = Symbol::new(&env, "oats");
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &campaign_id,
+        &farmer,
+        &target_amount,
+        &token_address,
+        &deadline,
+        &harvest_metadata,
+    );
+
+    let events = env.events().all();
+    let event = events.last().unwrap();
+    assert_eq!(
+        event.1,
+        (Symbol::new(&env, "CampaignCreated"), campaign_id).into_val(&env)
+    );
 }
