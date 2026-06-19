@@ -8,15 +8,12 @@ pub fn emit_campaign_created(env: &Env, campaign_id: u64, farmer: Address, targe
 }
 
 pub fn emit_contribution_received(env: &Env, campaign_id: u64, investor: Address, amount: i128) {
-    let topics = (Symbol::new(env, "ContributionReceived"), campaign_id);
+    let topics = (Symbol::new(env, "ContribReceived"), campaign_id);
     let payload = (investor, env.ledger().timestamp(), amount);
     env.events().publish(topics, payload);
 }
 
 pub fn emit_campaign_funded(env: &Env, campaign_id: u64, total_funded: i128) {
-    // For campaign funded, the "actor" could be the contract itself or omitted.
-    // We'll put a placeholder or omit actor, but requirement says "actor address".
-    // We can just pass the campaign_id in topics, and (timestamp, total_funded) in payload.
     let topics = (Symbol::new(env, "CampaignFunded"), campaign_id);
     let payload = (env.ledger().timestamp(), total_funded);
     env.events().publish(topics, payload);
@@ -25,6 +22,12 @@ pub fn emit_campaign_funded(env: &Env, campaign_id: u64, total_funded: i128) {
 pub fn emit_tranche_released(env: &Env, campaign_id: u64, recipient: Address, amount: i128) {
     let topics = (Symbol::new(env, "TrancheReleased"), campaign_id);
     let payload = (recipient, env.ledger().timestamp(), amount);
+    env.events().publish(topics, payload);
+}
+
+pub fn emit_tranches_configured(env: &Env, campaign_id: u64, tranche_count: u32) {
+    let topics = (Symbol::new(env, "TranchesConfigured"), campaign_id);
+    let payload = (env.ledger().timestamp(), tranche_count);
     env.events().publish(topics, payload);
 }
 
