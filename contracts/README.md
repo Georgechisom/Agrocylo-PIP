@@ -40,6 +40,8 @@ The Registry Contract manages campaign activity records and access control for t
 **Activity Records:**
 
 Activity records track important campaign lifecycle events including:
+- Farmer registration
+- Campaign registration
 - Campaign creation
 - Funding events
 - Status changes
@@ -53,6 +55,21 @@ Activity records track important campaign lifecycle events including:
 - Admin-only operations require authorization from the current admin address
 - Approved contracts can perform registry operations without additional authorization
 - Activity records can be created by admin, approved contracts, or authorized users
+
+**Registry Events:**
+
+Registry events use stable, descriptive names so frontend, backend, and analytics services can index the same stream consistently.
+
+| Event | Topics | Payload |
+| --- | --- | --- |
+| `AdminInitialized` | `(event_name, admin)` | `(admin, timestamp, ledger_sequence)` |
+| `AdminUpdated` | `(event_name, new_admin)` | `(actor, old_admin, new_admin, timestamp, ledger_sequence)` |
+| `ContractApproved` | `(event_name, contract)` | `(actor, contract, timestamp, ledger_sequence)` |
+| `ContractRevoked` | `(event_name, contract)` | `(actor, contract, timestamp, ledger_sequence)` |
+| `FarmerRegistered` | `(event_name, farmer)` | `(actor, timestamp, ledger_sequence)` |
+| `CampaignRegistered` | `(event_name, campaign_id)` | `(actor, action_type, timestamp, ledger_sequence)` |
+| `CampaignStatusUpdated` | `(event_name, campaign_id)` | `(actor, action_type, timestamp, ledger_sequence)` |
+| `ActivityRecorded` | `(event_name, campaign_id)` | `(actor, action_type, timestamp, ledger_sequence)` |
 
 ## Building
 
