@@ -404,7 +404,6 @@ impl ProductionEscrowContract {
 
         emit_campaign_settled(&env, campaign_id, farmer, final_amount);
     }
-
     pub fn get_campaign(env: Env, campaign_id: u64) -> Campaign {
         storage::get_campaign(&env, campaign_id)
     }

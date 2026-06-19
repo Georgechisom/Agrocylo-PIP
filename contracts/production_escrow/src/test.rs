@@ -496,6 +496,13 @@ fn test_open_dispute_records_fields_and_status() {
 
     let campaign = s.client.get_campaign(&s.campaign_id);
     assert_eq!(campaign.status, CampaignStatus::Disputed);
+
+    let events = s.env.events().all();
+    let event = events.last().unwrap();
+    assert_eq!(
+        event.1,
+        (Symbol::new(&s.env, "DisputeOpened"), s.campaign_id).into_val(&s.env)
+    );
 }
 
 #[test]
@@ -566,6 +573,7 @@ fn test_resolve_unauthorized_fails() {
     let s = funded_campaign();
     s.client
         .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
+
     s.env.mock_auths(&[]);
     s.client
         .resolve_dispute(&s.campaign_id, &DisputeResolution::FullPayout, &0i128);
@@ -589,6 +597,13 @@ fn test_claim_refund_full_refund_returns_contribution() {
         .resolve_dispute(&s.campaign_id, &DisputeResolution::FullRefund, &0i128);
     s.client.claim_refund(&s.campaign_id, &s.investor1);
     assert!(s.client.try_claim_refund(&s.campaign_id, &s.investor1).is_err());
+    let event = s.env.events().all().last().unwrap();
+    assert_eq!(
+        event.1,
+        (Symbol::new(&s.env, "RefundClaimed"), s.campaign_id).into_val(&s.env)
+    );
+    let err = s.client.try_claim_refund(&s.campaign_id, &s.investor1);
+    assert!(err.is_err());
 }
 
 #[test]
@@ -598,8 +613,10 @@ fn test_claim_refund_partial_settlement_is_pro_rata() {
         .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
     s.client
         .resolve_dispute(&s.campaign_id, &DisputeResolution::PartialSettlement, &300i128);
+
     s.client.claim_refund(&s.campaign_id, &s.investor1);
     s.client.claim_refund(&s.campaign_id, &s.investor2);
+
     assert!(s.client.try_claim_refund(&s.campaign_id, &s.investor1).is_err());
     assert!(s.client.try_claim_refund(&s.campaign_id, &s.investor2).is_err());
 }

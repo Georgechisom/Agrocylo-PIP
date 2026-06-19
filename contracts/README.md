@@ -4,6 +4,28 @@ Soroban smart contracts for the Agrocylo Production Investment Platform.
 
 ## Contracts
 
+### ProductionEscrowContract
+
+The ProductionEscrowContract manages the escrow lifecycle of agricultural production campaigns.
+
+**Features:**
+
+- Campaign creation with funding goals and deadlines
+- Multi-investor funding tracking
+- Campaign lifecycle state machine (Funding → Funded → InProduction → Harvested → Settled)
+- Alternative terminal states: Failed (refund) and Disputed
+- Event emission for state transitions
+
+**Campaign States:**
+
+- `Funding` — campaign created, accepting funds
+- `Funded` — funding goal reached
+- `InProduction` — production phase active
+- `Harvested` — harvest reported by farmer
+- `Settled` — funds distributed
+- `Failed` — campaign failed, refunds processed
+- `Disputed` — dispute in progress
+
 ### Registry Contract
 
 The Registry Contract manages campaign activity records and access control for the platform.
@@ -55,6 +77,13 @@ cargo test
 
 ```
 contracts/
+├── production_escrow/  # Production escrow contract
+│   ├── src/
+│   │   ├── lib.rs     # Contract entry point
+│   │   ├── types.rs   # CampaignStatus enum, Campaign struct, DataKey
+│   │   ├── storage.rs # Storage utilities
+│   │   └── test.rs    # Test suite
+│   └── Cargo.toml
 ├── registry/           # Registry contract implementation
 │   ├── src/
 │   │   ├── lib.rs     # Contract entry point

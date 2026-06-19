@@ -21,7 +21,6 @@ pub enum DisputeStatus {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DisputeResolution {
-    /// Set while a dispute is open and not yet resolved.
     Pending,
     FullRefund,
     PartialSettlement,
