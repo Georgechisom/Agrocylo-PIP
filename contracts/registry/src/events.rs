@@ -1,4 +1,4 @@
-use crate::types::{ActivityAction, ActivityRecord};
+use crate::types::{ActivityAction, ActivityRecord, CampaignStatus};
 use soroban_sdk::{Address, Env, Symbol};
 
 pub const ADMIN_INITIALIZED: &str = "AdminInitialized";
@@ -74,6 +74,40 @@ pub fn activity_recorded(env: &Env, campaign_id: u64, record: ActivityRecord) {
             record.action_type,
             record.timestamp,
             record.ledger_sequence,
+        ),
+    );
+}
+
+pub fn campaign_registered(
+    env: &Env,
+    campaign_id: u64,
+    farmer: Address,
+    escrow_contract: Address,
+) {
+    env.events().publish(
+        (Symbol::new(env, CAMPAIGN_REGISTERED), campaign_id),
+        (
+            farmer,
+            escrow_contract,
+            env.ledger().timestamp(),
+            env.ledger().sequence(),
+        ),
+    );
+}
+
+pub fn campaign_status_updated(
+    env: &Env,
+    campaign_id: u64,
+    prev_status: CampaignStatus,
+    new_status: CampaignStatus,
+) {
+    env.events().publish(
+        (Symbol::new(env, CAMPAIGN_STATUS_UPDATED), campaign_id),
+        (
+            prev_status,
+            new_status,
+            env.ledger().timestamp(),
+            env.ledger().sequence(),
         ),
     );
 }

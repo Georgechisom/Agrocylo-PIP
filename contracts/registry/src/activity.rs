@@ -1,5 +1,5 @@
 use crate::{
-    admin, events, storage,
+    events, storage,
     types::{ActivityAction, ActivityRecord, DataKey},
 };
 use soroban_sdk::{Address, Env, Vec};
