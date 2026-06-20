@@ -466,7 +466,9 @@ fn test_release_tranche_blocked_for_resolved_campaign() {
 #[test]
 #[should_panic(expected = "cannot release tranche: campaign is in a terminal state")]
 fn test_release_tranche_blocked_for_settled_campaign() {
-    let s = funded_campaign();
+    let s = token_funded_campaign();
+    s.client
+        .report_harvest(&s.campaign_id, &s.farmer, &Symbol::new(&s.env, "ok"));
     s.client.settle_campaign(&s.campaign_id, &s.farmer, &1000i128);
     s.client.release_tranche(&s.campaign_id, &s.farmer, &100i128);
 }
@@ -590,32 +592,49 @@ fn test_disputed_campaign_blocks_settlement() {
 
 #[test]
 fn test_claim_refund_full_refund_returns_contribution() {
-    let s = funded_campaign();
+    // Use token-funded campaign so the contract actually holds tokens to return.
+    let s = token_funded_campaign();
     s.client
         .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
     s.client
         .resolve_dispute(&s.campaign_id, &DisputeResolution::FullRefund, &0i128);
+
+    let token = TokenClient::new(&s.env, &s.token);
+    let balance_before = token.balance(&s.investor1);
+
     s.client.claim_refund(&s.campaign_id, &s.investor1);
-    assert!(s.client.try_claim_refund(&s.campaign_id, &s.investor1).is_err());
+
+    // investor1 contributed 600 / 1000 = 60 % of total → gets 600 back
+    assert_eq!(token.balance(&s.investor1), balance_before + 600);
+
     let event = s.env.events().all().last().unwrap();
     assert_eq!(
         event.1,
         (Symbol::new(&s.env, "RefundClaimed"), s.campaign_id).into_val(&s.env)
     );
-    let err = s.client.try_claim_refund(&s.campaign_id, &s.investor1);
-    assert!(err.is_err());
+
+    // Double-claim is blocked.
+    assert!(s.client.try_claim_refund(&s.campaign_id, &s.investor1).is_err());
 }
 
 #[test]
 fn test_claim_refund_partial_settlement_is_pro_rata() {
-    let s = funded_campaign();
+    // PartialSettlement: 300 to farmer, 700 refundable to investors.
+    let s = token_funded_campaign();
     s.client
         .open_dispute(&s.campaign_id, &s.investor1, &Symbol::new(&s.env, "Delay"));
     s.client
         .resolve_dispute(&s.campaign_id, &DisputeResolution::PartialSettlement, &300i128);
 
-    s.client.claim_refund(&s.campaign_id, &s.investor1);
-    s.client.claim_refund(&s.campaign_id, &s.investor2);
+    let token = TokenClient::new(&s.env, &s.token);
+    let inv1_before = token.balance(&s.investor1);
+    let inv2_before = token.balance(&s.investor2);
+
+    s.client.claim_refund(&s.campaign_id, &s.investor1); // 600/1000 * 700 = 420
+    s.client.claim_refund(&s.campaign_id, &s.investor2); // 400/1000 * 700 = 280
+
+    assert_eq!(token.balance(&s.investor1), inv1_before + 420);
+    assert_eq!(token.balance(&s.investor2), inv2_before + 280);
 
     assert!(s.client.try_claim_refund(&s.campaign_id, &s.investor1).is_err());
     assert!(s.client.try_claim_refund(&s.campaign_id, &s.investor2).is_err());
@@ -623,13 +642,20 @@ fn test_claim_refund_partial_settlement_is_pro_rata() {
 
 #[test]
 fn test_happy_path_settlement() {
-    let s = funded_campaign();
-    s.client.report_harvest(&s.campaign_id, &s.farmer);
+    let s = token_funded_campaign();
+    s.client.report_harvest(&s.campaign_id, &s.farmer, &Symbol::new(&s.env, "good"));
+
+    let token = TokenClient::new(&s.env, &s.token);
+    let farmer_before = token.balance(&s.farmer);
+
+    // farmer gets 1000, investors get 0 returns
     s.client.settle_campaign(&s.campaign_id, &s.farmer, &1000i128);
 
     let campaign = s.client.get_campaign(&s.campaign_id);
     assert_eq!(campaign.released, 1000);
+    assert_eq!(campaign.returnable, 0);
     assert_eq!(campaign.status, CampaignStatus::Settled);
+    assert_eq!(token.balance(&s.farmer), farmer_before + 1000);
 }
 
 #[test]
@@ -720,4 +746,328 @@ fn test_create_campaign_emits_event() {
         event.1,
         (Symbol::new(&env, "CampaignCreated"), 123u64).into_val(&env)
     );
+}
+
+// ─── report_harvest tests ────────────────────────────────────────────────────
+
+#[test]
+fn test_report_harvest_sets_harvested_status() {
+    let s = token_funded_campaign();
+    s.client
+        .report_harvest(&s.campaign_id, &s.farmer, &Symbol::new(&s.env, "good"));
+
+    let campaign = s.client.get_campaign(&s.campaign_id);
+    assert_eq!(campaign.status, CampaignStatus::Harvested);
+}
+
+#[test]
+fn test_report_harvest_stores_record() {
+    let s = token_funded_campaign();
+    let outcome = Symbol::new(&s.env, "bumper");
+    s.client.report_harvest(&s.campaign_id, &s.farmer, &outcome);
+
+    let record = s.client.get_harvest_record(&s.campaign_id);
+    assert_eq!(record.farmer, s.farmer);
+    assert_eq!(record.outcome, outcome);
+    // Timestamp and sequence are 0 in the default test environment; just verify
+    // the record was stored (fields are accessible without panic).
+    let _ = record.timestamp;
+    let _ = record.ledger_sequence;
+}
+
+#[test]
+fn test_report_harvest_emits_event() {
+    let s = token_funded_campaign();
+    let outcome = Symbol::new(&s.env, "good");
+    s.client.report_harvest(&s.campaign_id, &s.farmer, &outcome);
+
+    let events = s.env.events().all();
+    let event = events
+        .iter()
+        .rev()
+        .find(|e| {
+            e.1 == (Symbol::new(&s.env, "HarvestReported"), s.campaign_id).into_val(&s.env)
+        });
+    assert!(event.is_some(), "HarvestReported event not emitted");
+}
+
+#[test]
+#[should_panic(expected = "not authorized to report harvest")]
+fn test_report_harvest_unauthorized_fails() {
+    let s = token_funded_campaign();
+    let stranger = Address::generate(&s.env);
+    s.client.report_harvest(&s.campaign_id, &stranger, &Symbol::new(&s.env, "good"));
+}
+
+#[test]
+#[should_panic(expected = "campaign not funded")]
+fn test_report_harvest_on_unfunded_campaign_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &1u64, &farmer, &1000i128, &token, &1000000u64,
+        &Symbol::new(&env, "corn"),
+    );
+    // Campaign is Active, not Funded.
+    client.report_harvest(&1u64, &farmer, &Symbol::new(&env, "good"));
+}
+
+// ─── settle_campaign tests ───────────────────────────────────────────────────
+
+#[test]
+fn test_settle_campaign_requires_harvested() {
+    // A Funded campaign (not yet harvested) should panic.
+    let s = token_funded_campaign();
+    let result = s.client.try_settle_campaign(&s.campaign_id, &s.farmer, &500i128);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_settle_campaign_distributes_returns_to_investors() {
+    let s = token_funded_campaign();
+    s.client
+        .report_harvest(&s.campaign_id, &s.farmer, &Symbol::new(&s.env, "good"));
+
+    let token = TokenClient::new(&s.env, &s.token);
+    let farmer_before = token.balance(&s.farmer);
+    let inv1_before = token.balance(&s.investor1);
+    let inv2_before = token.balance(&s.investor2);
+
+    // Farmer gets 400; investors share 600 proportionally.
+    s.client.settle_campaign(&s.campaign_id, &s.farmer, &400i128);
+
+    let campaign = s.client.get_campaign(&s.campaign_id);
+    assert_eq!(campaign.released, 400);
+    assert_eq!(campaign.returnable, 600);
+    assert_eq!(campaign.status, CampaignStatus::Settled);
+    assert_eq!(token.balance(&s.farmer), farmer_before + 400);
+
+    // Investor claims — investor1 contributed 600/1000, gets 60% of 600 = 360.
+    s.client.claim_return(&s.campaign_id, &s.investor1);
+    assert_eq!(token.balance(&s.investor1), inv1_before + 360);
+
+    // Investor2 contributed 400/1000, gets 40% of 600 = 240.
+    s.client.claim_return(&s.campaign_id, &s.investor2);
+    assert_eq!(token.balance(&s.investor2), inv2_before + 240);
+}
+
+#[test]
+fn test_settle_campaign_full_payout_to_farmer() {
+    let s = token_funded_campaign();
+    s.client
+        .report_harvest(&s.campaign_id, &s.farmer, &Symbol::new(&s.env, "bumper"));
+
+    let token = TokenClient::new(&s.env, &s.token);
+    let farmer_before = token.balance(&s.farmer);
+
+    s.client.settle_campaign(&s.campaign_id, &s.farmer, &1000i128);
+
+    let campaign = s.client.get_campaign(&s.campaign_id);
+    assert_eq!(campaign.released, 1000);
+    assert_eq!(campaign.returnable, 0);
+    assert_eq!(campaign.status, CampaignStatus::Settled);
+    assert_eq!(token.balance(&s.farmer), farmer_before + 1000);
+
+    // No returns to claim.
+    assert!(s.client.try_claim_return(&s.campaign_id, &s.investor1).is_err());
+}
+
+#[test]
+fn test_settle_cannot_be_executed_twice() {
+    let s = token_funded_campaign();
+    s.client
+        .report_harvest(&s.campaign_id, &s.farmer, &Symbol::new(&s.env, "good"));
+    s.client.settle_campaign(&s.campaign_id, &s.farmer, &1000i128);
+
+    // Campaign is now Settled — a second call must fail.
+    let result = s.client.try_settle_campaign(&s.campaign_id, &s.farmer, &0i128);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_settle_emits_campaign_settled_event() {
+    let s = token_funded_campaign();
+    s.client
+        .report_harvest(&s.campaign_id, &s.farmer, &Symbol::new(&s.env, "good"));
+    s.client.settle_campaign(&s.campaign_id, &s.farmer, &700i128);
+
+    let events = s.env.events().all();
+    let event = events
+        .iter()
+        .rev()
+        .find(|e| {
+            e.1 == (Symbol::new(&s.env, "CampaignSettled"), s.campaign_id).into_val(&s.env)
+        });
+    assert!(event.is_some(), "CampaignSettled event not emitted");
+}
+
+// ─── mark_failed tests ───────────────────────────────────────────────────────
+
+#[test]
+fn test_mark_failed_sets_refundable_and_status() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let investor = Address::generate(&env);
+    let campaign_id = 1u64;
+
+    let (token_address, sac) = create_token(&env, &admin);
+    sac.mint(&investor, &500i128);
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &campaign_id, &farmer, &1000i128, &token_address,
+        &1000000u64, &Symbol::new(&env, "rice"),
+    );
+    client.fund_campaign(&campaign_id, &investor, &500i128);
+
+    // Campaign is in Funding state (500 of 1000 raised).
+    client.mark_failed(&campaign_id);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.status, CampaignStatus::Failed);
+    assert_eq!(campaign.refundable, 500);
+}
+
+#[test]
+fn test_mark_failed_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let (token, _) = create_token(&env, &admin);
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &1u64, &farmer, &1000i128, &token, &1000000u64,
+        &Symbol::new(&env, "corn"),
+    );
+    client.mark_failed(&1u64);
+
+    let events = env.events().all();
+    let event = events
+        .iter()
+        .rev()
+        .find(|e| e.1 == (Symbol::new(&env, "CampaignFailed"), 1u64).into_val(&env));
+    assert!(event.is_some(), "CampaignFailed event not emitted");
+}
+
+#[test]
+#[should_panic(expected = "campaign cannot be marked failed in its current state")]
+fn test_mark_failed_settled_campaign_fails() {
+    let s = token_funded_campaign();
+    s.client
+        .report_harvest(&s.campaign_id, &s.farmer, &Symbol::new(&s.env, "ok"));
+    s.client.settle_campaign(&s.campaign_id, &s.farmer, &1000i128);
+    s.client.mark_failed(&s.campaign_id);
+}
+
+// ─── claim_refund for Failed campaign tests ──────────────────────────────────
+
+#[test]
+fn test_claim_refund_after_failed_returns_tokens() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let investor1 = Address::generate(&env);
+    let investor2 = Address::generate(&env);
+    let campaign_id = 1u64;
+
+    let (token_address, sac) = create_token(&env, &admin);
+    sac.mint(&investor1, &600i128);
+    sac.mint(&investor2, &400i128);
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &campaign_id, &farmer, &1000i128, &token_address,
+        &1000000u64, &Symbol::new(&env, "wheat"),
+    );
+    client.fund_campaign(&campaign_id, &investor1, &600i128);
+    client.fund_campaign(&campaign_id, &investor2, &400i128);
+    client.mark_failed(&campaign_id);
+
+    let token = TokenClient::new(&env, &token_address);
+    let inv1_before = token.balance(&investor1);
+    let inv2_before = token.balance(&investor2);
+
+    client.claim_refund(&campaign_id, &investor1);
+    client.claim_refund(&campaign_id, &investor2);
+
+    assert_eq!(token.balance(&investor1), inv1_before + 600);
+    assert_eq!(token.balance(&investor2), inv2_before + 400);
+}
+
+#[test]
+fn test_claim_refund_blocks_active_campaign() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let investor = Address::generate(&env);
+    let (token, _) = create_token(&env, &admin);
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &1u64, &farmer, &1000i128, &token, &1000000u64,
+        &Symbol::new(&env, "soy"),
+    );
+
+    let result = client.try_claim_refund(&1u64, &investor);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_double_refund_is_blocked() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let investor = Address::generate(&env);
+    let campaign_id = 1u64;
+
+    let (token_address, sac) = create_token(&env, &admin);
+    sac.mint(&investor, &1000i128);
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &campaign_id, &farmer, &1000i128, &token_address,
+        &1000000u64, &Symbol::new(&env, "corn"),
+    );
+    client.fund_campaign(&campaign_id, &investor, &1000i128);
+    client.mark_failed(&campaign_id);
+
+    client.claim_refund(&campaign_id, &investor);
+
+    // Second claim must fail.
+    assert!(client.try_claim_refund(&campaign_id, &investor).is_err());
 }
