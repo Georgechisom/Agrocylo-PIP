@@ -6,9 +6,11 @@ pub enum CampaignStatus {
     Active,
     Funding,
     Funded,
+    Harvested,
     Disputed,
     Resolved,
     Settled,
+    Failed,
 }
 
 #[contracttype]
@@ -38,7 +40,17 @@ pub struct Campaign {
     pub total_funded: i128,
     pub released: i128,
     pub refundable: i128,
+    pub returnable: i128,
     pub status: CampaignStatus,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HarvestRecord {
+    pub farmer: Address,
+    pub outcome: Symbol,
+    pub timestamp: u64,
+    pub ledger_sequence: u32,
 }
 
 #[contracttype]
@@ -74,6 +86,7 @@ pub enum DataKey {
     Contribution(u64, Address),
     /// Ordered list of tranches for a campaign.
     Tranches(u64),
+    HarvestRecord(u64),
 }
 
 pub type TrancheList = Vec<Tranche>;
