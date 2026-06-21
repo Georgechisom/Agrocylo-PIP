@@ -1,0 +1,19 @@
+[package]
+name = "integration_tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# This crate has no contract of its own — it exists purely to host
+# cross-contract end-to-end tests that exercise `production_escrow` and
+# `registry` together, the way an indexer / off-chain orchestrator would.
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+production_escrow = { path = "../production_escrow" }
+registry = { path = "../registry" }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

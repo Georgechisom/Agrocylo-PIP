@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Symbol};
+use soroban_sdk::{contracttype, Address, String};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,24 +26,21 @@ pub struct ActivityRecord {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CampaignStatus {
-    Active,
-    Funding,
-    Funded,
-    Disputed,
-    Resolved,
-    Settled,
+pub struct FarmerProfile {
+    pub address: Address,
+    pub name: String,
+    pub location: String,
+    pub registration_time: u64,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CampaignRecord {
-    pub campaign_id: u64,
+pub struct CampaignInfo {
+    pub id: u64,
     pub farmer: Address,
-    pub escrow_contract: Address,
-    pub crop_metadata: Symbol,
-    pub region_metadata: Symbol,
-    pub status: CampaignStatus,
+    pub title: String,
+    pub description: String,
+    pub created_at: u64,
 }
 
 #[contracttype]
@@ -52,6 +49,8 @@ pub enum DataKey {
     Admin,
     ApprovedContract(Address),
     CampaignActivities(u64),
+    Farmer(Address),
     Campaign(u64),
-    FarmerCampaigns(Address),
+    FarmerCount,
+    CampaignCount,
 }

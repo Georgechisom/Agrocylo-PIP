@@ -4,12 +4,13 @@ mod activity;
 mod admin;
 mod campaign;
 mod events;
+mod farmer;
 mod storage;
 mod types;
 
 pub use types::*;
 
-use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
 
 #[contract]
 pub struct RegistryContract;
@@ -38,6 +39,28 @@ impl RegistryContract {
 
     pub fn is_contract_approved(env: Env, contract: Address) -> bool {
         admin::is_contract_approved(&env, &contract)
+    }
+
+    pub fn register_farmer(env: Env, farmer: Address, name: String, location: String) {
+        farmer::register_farmer(&env, farmer, name, location);
+    }
+
+    pub fn get_farmer(env: Env, farmer: Address) -> Option<FarmerProfile> {
+        farmer::get_farmer(&env, &farmer)
+    }
+
+    pub fn register_campaign(
+        env: Env,
+        campaign_id: u64,
+        farmer: Address,
+        title: String,
+        description: String,
+    ) {
+        campaign::register_campaign(&env, campaign_id, farmer, title, description);
+    }
+
+    pub fn get_campaign(env: Env, campaign_id: u64) -> Option<CampaignInfo> {
+        campaign::get_campaign(&env, campaign_id)
     }
 
     pub fn record_activity(
