@@ -75,6 +75,41 @@ impl RegistryContract {
     pub fn get_campaign_activities(env: Env, campaign_id: u64) -> Vec<ActivityRecord> {
         activity::get_campaign_activities(&env, campaign_id)
     }
+
+    pub fn register_campaign(
+        env: Env,
+        campaign_id: u64,
+        farmer: Address,
+        escrow_contract: Address,
+        crop_metadata: Symbol,
+        region_metadata: Symbol,
+    ) {
+        campaign::register_campaign(
+            &env,
+            campaign_id,
+            &farmer,
+            &escrow_contract,
+            crop_metadata,
+            region_metadata,
+        );
+    }
+
+    pub fn update_campaign_status(
+        env: Env,
+        campaign_id: u64,
+        caller: Address,
+        new_status: CampaignStatus,
+    ) {
+        campaign::update_campaign_status(&env, campaign_id, &caller, new_status);
+    }
+
+    pub fn get_campaign(env: Env, campaign_id: u64) -> CampaignRecord {
+        campaign::get_campaign(&env, campaign_id)
+    }
+
+    pub fn get_campaigns_by_farmer(env: Env, farmer: Address) -> Vec<u64> {
+        campaign::get_campaigns_by_farmer(&env, &farmer)
+    }
 }
 
 #[cfg(test)]
