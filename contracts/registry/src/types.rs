@@ -11,6 +11,8 @@ pub enum ActivityAction {
     DisputeInitiated,
     DisputeResolved,
     CampaignSettled,
+    FarmerRegistered,
+    CampaignRegistered,
 }
 
 #[contracttype]

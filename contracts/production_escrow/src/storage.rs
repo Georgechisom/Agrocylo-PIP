@@ -1,5 +1,5 @@
-use crate::types::{Campaign, DataKey, Dispute};
-use soroban_sdk::{Address, Env};
+use crate::types::{Campaign, DataKey, Dispute, HarvestRecord, TrancheList};
+use soroban_sdk::{Address, Env, Vec};
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const INSTANCE_LIFETIME_THRESHOLD: u32 = DAY_IN_LEDGERS * 30;
@@ -75,5 +75,32 @@ pub fn get_contribution(env: &Env, campaign_id: u64, investor: &Address) -> i128
 pub fn set_contribution(env: &Env, campaign_id: u64, investor: &Address, amount: i128) {
     let key = DataKey::Contribution(campaign_id, investor.clone());
     env.storage().persistent().set(&key, &amount);
+    extend_persistent_ttl(env, &key);
+}
+
+pub fn get_tranches(env: &Env, campaign_id: u64) -> TrancheList {
+    let key = DataKey::Tranches(campaign_id);
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn set_tranches(env: &Env, campaign_id: u64, tranches: &TrancheList) {
+    let key = DataKey::Tranches(campaign_id);
+    env.storage().persistent().set(&key, tranches);
+    extend_persistent_ttl(env, &key);
+}
+
+pub fn get_harvest_record(env: &Env, campaign_id: u64) -> HarvestRecord {
+    let key = DataKey::HarvestRecord(campaign_id);
+    let record = env.storage().persistent().get(&key).unwrap();
+    extend_persistent_ttl(env, &key);
+    record
+}
+
+pub fn set_harvest_record(env: &Env, campaign_id: u64, record: &HarvestRecord) {
+    let key = DataKey::HarvestRecord(campaign_id);
+    env.storage().persistent().set(&key, record);
     extend_persistent_ttl(env, &key);
 }

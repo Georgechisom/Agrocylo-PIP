@@ -9,6 +9,7 @@ pub fn initialize(env: &Env, admin: &Address) {
     admin.require_auth();
     storage::set_admin(env, admin);
     storage::extend_instance_ttl(env);
+    events::admin_initialized(env, admin.clone());
 }
 
 pub fn require_admin(env: &Env) {
@@ -32,16 +33,18 @@ pub fn get_admin(env: &Env) -> Address {
 
 pub fn approve_contract(env: &Env, contract: &Address) {
     require_admin(env);
+    let admin = storage::get_admin(env);
     storage::set_contract_approved(env, contract, true);
     storage::extend_instance_ttl(env);
-    events::contract_approved(env, contract.clone());
+    events::contract_approved(env, admin, contract.clone());
 }
 
 pub fn revoke_contract(env: &Env, contract: &Address) {
     require_admin(env);
+    let admin = storage::get_admin(env);
     storage::set_contract_approved(env, contract, false);
     storage::extend_instance_ttl(env);
-    events::contract_revoked(env, contract.clone());
+    events::contract_revoked(env, admin, contract.clone());
 }
 
 pub fn is_contract_approved(env: &Env, contract: &Address) -> bool {
