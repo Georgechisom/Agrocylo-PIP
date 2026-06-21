@@ -8,15 +8,12 @@ pub fn emit_campaign_created(env: &Env, campaign_id: u64, farmer: Address, targe
 }
 
 pub fn emit_contribution_received(env: &Env, campaign_id: u64, investor: Address, amount: i128) {
-    let topics = (Symbol::new(env, "ContributionReceived"), campaign_id);
+    let topics = (Symbol::new(env, "ContribReceived"), campaign_id);
     let payload = (investor, env.ledger().timestamp(), amount);
     env.events().publish(topics, payload);
 }
 
 pub fn emit_campaign_funded(env: &Env, campaign_id: u64, total_funded: i128) {
-    // For campaign funded, the "actor" could be the contract itself or omitted.
-    // We'll put a placeholder or omit actor, but requirement says "actor address".
-    // We can just pass the campaign_id in topics, and (timestamp, total_funded) in payload.
     let topics = (Symbol::new(env, "CampaignFunded"), campaign_id);
     let payload = (env.ledger().timestamp(), total_funded);
     env.events().publish(topics, payload);
@@ -28,9 +25,27 @@ pub fn emit_tranche_released(env: &Env, campaign_id: u64, recipient: Address, am
     env.events().publish(topics, payload);
 }
 
-pub fn emit_harvest_reported(env: &Env, campaign_id: u64, farmer: Address) {
+pub fn emit_tranches_configured(env: &Env, campaign_id: u64, tranche_count: u32) {
+    let topics = (Symbol::new(env, "TranchesConfigured"), campaign_id);
+    let payload = (env.ledger().timestamp(), tranche_count);
+    env.events().publish(topics, payload);
+}
+
+pub fn emit_harvest_reported(env: &Env, campaign_id: u64, farmer: Address, outcome: Symbol) {
     let topics = (Symbol::new(env, "HarvestReported"), campaign_id);
-    let payload = (farmer, env.ledger().timestamp());
+    let payload = (farmer, outcome, env.ledger().timestamp());
+    env.events().publish(topics, payload);
+}
+
+pub fn emit_campaign_failed(env: &Env, campaign_id: u64, refundable: i128) {
+    let topics = (Symbol::new(env, "CampaignFailed"), campaign_id);
+    let payload = (env.ledger().timestamp(), refundable);
+    env.events().publish(topics, payload);
+}
+
+pub fn emit_return_claimed(env: &Env, campaign_id: u64, investor: Address, amount: i128) {
+    let topics = (Symbol::new(env, "ReturnClaimed"), campaign_id);
+    let payload = (investor, env.ledger().timestamp(), amount);
     env.events().publish(topics, payload);
 }
 
@@ -71,8 +86,14 @@ pub fn emit_refund_claimed(env: &Env, campaign_id: u64, investor: Address, amoun
     env.events().publish(topics, payload);
 }
 
-pub fn emit_campaign_settled(env: &Env, campaign_id: u64, farmer: Address, final_amount: i128) {
+pub fn emit_campaign_settled(
+    env: &Env,
+    campaign_id: u64,
+    farmer: Address,
+    farmer_payout: i128,
+    investor_returns: i128,
+) {
     let topics = (Symbol::new(env, "CampaignSettled"), campaign_id);
-    let payload = (farmer, env.ledger().timestamp(), final_amount);
+    let payload = (farmer, env.ledger().timestamp(), farmer_payout, investor_returns);
     env.events().publish(topics, payload);
 }

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "registry",
     "production_escrow",
+    "integration_tests",
 ]
 
 [workspace.dependencies]

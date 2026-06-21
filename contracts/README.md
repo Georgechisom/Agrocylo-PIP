@@ -33,6 +33,8 @@ The Registry Contract manages campaign activity records and access control for t
 **Activity Records:**
 
 Activity records track important campaign lifecycle events including:
+- Farmer registration
+- Campaign registration
 - Campaign creation
 - Funding events
 - Status changes

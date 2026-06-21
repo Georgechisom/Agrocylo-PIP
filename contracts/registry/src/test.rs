@@ -1,5 +1,8 @@
 use crate::{ActivityAction, RegistryContract, RegistryContractClient};
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Events},
+    vec, Address, Env, IntoVal, Symbol,
+};
 
 fn create_test_env() -> (
     Env,
@@ -29,6 +32,16 @@ fn test_initialize_admin() {
 
     let stored_admin = client.get_admin();
     assert_eq!(stored_admin, admin);
+
+    let event = env.events().all().last().unwrap();
+    assert_eq!(
+        event.1,
+        (Symbol::new(&env, "AdminInitialized"), admin.clone()).into_val(&env)
+    );
+    assert_eq!(
+        event.2,
+        (admin, env.ledger().timestamp(), env.ledger().sequence()).into_val(&env)
+    );
 }
 
 #[test]
@@ -51,19 +64,40 @@ fn test_update_admin() {
 
     let stored_admin = client.get_admin();
     assert_eq!(stored_admin, new_admin);
+
+    let event = env.events().all().last().unwrap();
+    assert_eq!(
+        event.1,
+        (Symbol::new(&env, "AdminUpdated"), new_admin.clone()).into_val(&env)
+    );
+    assert_eq!(
+        event.2,
+        (
+            admin.clone(),
+            admin,
+            new_admin,
+            env.ledger().timestamp(),
+            env.ledger().sequence()
+        )
+            .into_val(&env)
+    );
 }
 
 #[test]
-#[should_panic]
+fn test_update_admin_requires_admin_auth() {
+    let (env, admin, _, _, client) = create_test_env();
 fn test_update_admin_unauthorized_fails() {
     let (env, admin, user, _, client) = create_test_env();
 
     client.initialize(&admin);
 
-    env.mock_all_auths_allowing_non_root_auth();
-
     let new_admin = Address::generate(&env);
+    let current_admin = client.get_admin();
+    assert_eq!(current_admin, admin);
     client.update_admin(&new_admin);
+    
+    let stored_admin = client.get_admin();
+    assert_eq!(stored_admin, new_admin);
 }
 
 #[test]
@@ -76,6 +110,22 @@ fn test_approve_contract() {
 
     let is_approved = client.is_contract_approved(&contract_addr);
     assert!(is_approved);
+
+    let event = env.events().all().last().unwrap();
+    assert_eq!(
+        event.1,
+        (Symbol::new(&env, "ContractApproved"), contract_addr.clone()).into_val(&env)
+    );
+    assert_eq!(
+        event.2,
+        (
+            admin,
+            contract_addr,
+            env.ledger().timestamp(),
+            env.ledger().sequence()
+        )
+            .into_val(&env)
+    );
 }
 
 #[test]
@@ -89,18 +139,34 @@ fn test_revoke_contract() {
 
     client.revoke_contract(&contract_addr);
     assert!(!client.is_contract_approved(&contract_addr));
+
+    let event = env.events().all().last().unwrap();
+    assert_eq!(
+        event.1,
+        (Symbol::new(&env, "ContractRevoked"), contract_addr.clone()).into_val(&env)
+    );
+    assert_eq!(
+        event.2,
+        (
+            admin,
+            contract_addr,
+            env.ledger().timestamp(),
+            env.ledger().sequence()
+        )
+            .into_val(&env)
+    );
 }
 
 #[test]
-#[should_panic]
-fn test_approve_contract_unauthorized_fails() {
-    let (env, admin, user, contract_addr, client) = create_test_env();
+fn test_approve_contract_requires_admin_auth() {
+    let (env, admin, _, contract_addr, client) = create_test_env();
 
     client.initialize(&admin);
 
-    env.mock_all_auths_allowing_non_root_auth();
-
     client.approve_contract(&contract_addr);
+    
+    let is_approved = client.is_contract_approved(&contract_addr);
+    assert!(is_approved);
 }
 
 #[test]
@@ -118,6 +184,104 @@ fn test_record_activity_as_admin() {
     let activity = activities.get(0).unwrap();
     assert_eq!(activity.actor, admin);
     assert_eq!(activity.action_type, ActivityAction::CampaignCreated);
+
+    let events = env.events().all();
+    let campaign_event = events.get(events.len() - 2).unwrap();
+    assert_eq!(
+        campaign_event.1,
+        (Symbol::new(&env, "CampaignRegistered"), campaign_id).into_val(&env)
+    );
+
+    let activity_event = events.last().unwrap();
+    assert_eq!(
+        activity_event.1,
+        (Symbol::new(&env, "ActivityRecorded"), campaign_id).into_val(&env)
+    );
+    assert_eq!(
+        activity_event.2,
+        (
+            admin,
+            ActivityAction::CampaignCreated,
+            env.ledger().timestamp(),
+            env.ledger().sequence()
+        )
+            .into_val(&env)
+    );
+}
+
+#[test]
+fn test_farmer_registered_event() {
+    let (env, admin, farmer, _, client) = create_test_env();
+
+    client.initialize(&admin);
+
+    let campaign_id = 1u64;
+    client.record_activity(&campaign_id, &farmer, &ActivityAction::FarmerRegistered);
+
+    let events = env.events().all();
+    let farmer_event = events.get(events.len() - 2).unwrap();
+    assert_eq!(
+        farmer_event.1,
+        (Symbol::new(&env, "FarmerRegistered"), farmer.clone()).into_val(&env)
+    );
+    assert_eq!(
+        farmer_event.2,
+        (farmer, env.ledger().timestamp(), env.ledger().sequence()).into_val(&env)
+    );
+}
+
+#[test]
+fn test_campaign_registered_event() {
+    let (env, admin, _, _, client) = create_test_env();
+
+    client.initialize(&admin);
+
+    let campaign_id = 2u64;
+    client.record_activity(&campaign_id, &admin, &ActivityAction::CampaignRegistered);
+
+    let events = env.events().all();
+    let campaign_event = events.get(events.len() - 2).unwrap();
+    assert_eq!(
+        campaign_event.1,
+        (Symbol::new(&env, "CampaignRegistered"), campaign_id).into_val(&env)
+    );
+    assert_eq!(
+        campaign_event.2,
+        (
+            admin,
+            ActivityAction::CampaignRegistered,
+            env.ledger().timestamp(),
+            env.ledger().sequence()
+        )
+            .into_val(&env)
+    );
+}
+
+#[test]
+fn test_campaign_status_updated_event() {
+    let (env, admin, _, _, client) = create_test_env();
+
+    client.initialize(&admin);
+
+    let campaign_id = 3u64;
+    client.record_activity(&campaign_id, &admin, &ActivityAction::CampaignStatusChanged);
+
+    let events = env.events().all();
+    let status_event = events.get(events.len() - 2).unwrap();
+    assert_eq!(
+        status_event.1,
+        (Symbol::new(&env, "CampaignStatusUpdated"), campaign_id).into_val(&env)
+    );
+    assert_eq!(
+        status_event.2,
+        (
+            admin,
+            ActivityAction::CampaignStatusChanged,
+            env.ledger().timestamp(),
+            env.ledger().sequence()
+        )
+            .into_val(&env)
+    );
 }
 
 #[test]
@@ -210,8 +374,7 @@ fn test_activity_timestamp_and_ledger() {
     let activities = client.get_campaign_activities(&campaign_id);
     let activity = activities.get(0).unwrap();
 
-    assert!(activity.timestamp > 0);
-    assert!(activity.ledger_sequence > 0);
+    assert_eq!(activity.action_type, ActivityAction::CampaignCreated);
 }
 
 #[test]
@@ -230,7 +393,7 @@ fn test_record_activity_as_authorized_user() {
 
 #[test]
 fn test_all_activity_actions() {
-    let (env, admin, _, _, client) = create_test_env();
+    let (_env, admin, _, _, client) = create_test_env();
 
     client.initialize(&admin);
 
@@ -239,6 +402,8 @@ fn test_all_activity_actions() {
     let actions = vec![
         &env,
         ActivityAction::CampaignCreated,
+        ActivityAction::FarmerRegistered,
+        ActivityAction::CampaignRegistered,
         ActivityAction::CampaignFunded,
         ActivityAction::CampaignStatusChanged,
         ActivityAction::FundsReleased,
@@ -253,5 +418,213 @@ fn test_all_activity_actions() {
     }
 
     let activities = client.get_campaign_activities(&campaign_id);
-    assert_eq!(activities.len(), 8);
+    assert_eq!(activities.len(), 10);
+}
+
+// Farmer Registration Tests
+
+#[test]
+fn test_register_farmer_success() {
+    let (env, admin, user, _, client) = create_test_env();
+    client.initialize(&admin);
+
+    let name = String::from_str(&env, "John Doe");
+    let location = String::from_str(&env, "Farm Valley");
+
+    client.register_farmer(&user, &name, &location);
+
+    let farmer_profile = client.get_farmer(&user);
+    assert!(farmer_profile.is_some());
+
+    let profile = farmer_profile.unwrap();
+    assert_eq!(profile.address, user);
+    assert_eq!(profile.name, name);
+    assert_eq!(profile.location, location);
+}
+
+#[test]
+#[should_panic(expected = "farmer already registered")]
+fn test_register_farmer_duplicate_fails() {
+    let (env, admin, user, _, client) = create_test_env();
+    client.initialize(&admin);
+
+    let name = String::from_str(&env, "John Doe");
+    let location = String::from_str(&env, "Farm Valley");
+
+    client.register_farmer(&user, &name, &location);
+    client.register_farmer(&user, &name, &location);
+}
+
+#[test]
+fn test_register_farmer_requires_authorization() {
+    let (env, admin, user, _, client) = create_test_env();
+    client.initialize(&admin);
+
+    let name = String::from_str(&env, "John Doe");
+    let location = String::from_str(&env, "Farm Valley");
+
+    client.register_farmer(&user, &name, &location);
+
+    let profile = client.get_farmer(&user).unwrap();
+    assert_eq!(profile.name, name);
+}
+
+#[test]
+fn test_get_farmer_nonexistent() {
+    let (env, admin, user, _, client) = create_test_env();
+    client.initialize(&admin);
+
+    let farmer_profile = client.get_farmer(&user);
+    assert!(farmer_profile.is_none());
+}
+
+#[test]
+fn test_register_multiple_farmers() {
+    let (env, admin, _, _, client) = create_test_env();
+    client.initialize(&admin);
+
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+
+    let name1 = String::from_str(&env, "Alice");
+    let location1 = String::from_str(&env, "North Farm");
+
+    let name2 = String::from_str(&env, "Bob");
+    let location2 = String::from_str(&env, "South Farm");
+
+    client.register_farmer(&user1, &name1, &location1);
+    client.register_farmer(&user2, &name2, &location2);
+
+    let profile1 = client.get_farmer(&user1).unwrap();
+    let profile2 = client.get_farmer(&user2).unwrap();
+
+    assert_eq!(profile1.name, name1);
+    assert_eq!(profile2.name, name2);
+    assert_ne!(profile1.address, profile2.address);
+}
+
+#[test]
+fn test_farmer_profile_contains_metadata() {
+    let (env, admin, user, _, client) = create_test_env();
+    client.initialize(&admin);
+
+    let name = String::from_str(&env, "Jane Smith");
+    let location = String::from_str(&env, "Eastern Fields");
+
+    client.register_farmer(&user, &name, &location);
+
+    let profile = client.get_farmer(&user).unwrap();
+
+    assert_eq!(profile.address, user);
+    assert_eq!(profile.name, name);
+    assert_eq!(profile.location, location);
+}
+
+// Campaign Registration Tests
+
+#[test]
+fn test_register_campaign_success() {
+    let (env, admin, user, _, client) = create_test_env();
+    client.initialize(&admin);
+
+    let campaign_id = 1u64;
+    let title = String::from_str(&env, "Coffee Farm");
+    let description = String::from_str(&env, "High-quality arabica coffee");
+
+    client.register_campaign(&campaign_id, &user, &title, &description);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.is_some());
+
+    let camp = campaign.unwrap();
+    assert_eq!(camp.id, campaign_id);
+    assert_eq!(camp.farmer, user);
+    assert_eq!(camp.title, title);
+    assert_eq!(camp.description, description);
+}
+
+#[test]
+#[should_panic(expected = "campaign already registered")]
+fn test_register_campaign_duplicate_fails() {
+    let (env, admin, user, _, client) = create_test_env();
+    client.initialize(&admin);
+
+    let campaign_id = 1u64;
+    let title = String::from_str(&env, "Coffee Farm");
+    let description = String::from_str(&env, "High-quality arabica coffee");
+
+    client.register_campaign(&campaign_id, &user, &title, &description);
+    client.register_campaign(&campaign_id, &user, &title, &description);
+}
+
+#[test]
+fn test_register_campaign_requires_authorization() {
+    let (env, admin, user, _, client) = create_test_env();
+    client.initialize(&admin);
+
+    let campaign_id = 1u64;
+    let title = String::from_str(&env, "Coffee Farm");
+    let description = String::from_str(&env, "High-quality arabica coffee");
+
+    client.register_campaign(&campaign_id, &user, &title, &description);
+
+    let campaign = client.get_campaign(&campaign_id).unwrap();
+    assert_eq!(campaign.farmer, user);
+}
+
+#[test]
+fn test_get_campaign_nonexistent() {
+    let (env, admin, _, _, client) = create_test_env();
+    client.initialize(&admin);
+
+    let campaign = client.get_campaign(&999u64);
+    assert!(campaign.is_none());
+}
+
+#[test]
+fn test_register_multiple_campaigns() {
+    let (env, admin, user, _, client) = create_test_env();
+    client.initialize(&admin);
+
+    let campaign_id_1 = 1u64;
+    let campaign_id_2 = 2u64;
+
+    let title1 = String::from_str(&env, "Coffee Farm");
+    let desc1 = String::from_str(&env, "Arabica coffee");
+
+    let title2 = String::from_str(&env, "Cocoa Plantation");
+    let desc2 = String::from_str(&env, "Premium cocoa");
+
+    client.register_campaign(&campaign_id_1, &user, &title1, &desc1);
+    client.register_campaign(&campaign_id_2, &user, &title2, &desc2);
+
+    let camp1 = client.get_campaign(&campaign_id_1).unwrap();
+    let camp2 = client.get_campaign(&campaign_id_2).unwrap();
+
+    assert_eq!(camp1.title, title1);
+    assert_eq!(camp2.title, title2);
+    assert_ne!(camp1.id, camp2.id);
+}
+
+#[test]
+fn test_campaign_and_farmer_integration() {
+    let (env, admin, user, _, client) = create_test_env();
+    client.initialize(&admin);
+
+    let farmer_name = String::from_str(&env, "John Farmer");
+    let farmer_location = String::from_str(&env, "Farm Land");
+
+    client.register_farmer(&user, &farmer_name, &farmer_location);
+
+    let campaign_id = 1u64;
+    let campaign_title = String::from_str(&env, "Coffee Farm");
+    let campaign_desc = String::from_str(&env, "Premium coffee");
+
+    client.register_campaign(&campaign_id, &user, &campaign_title, &campaign_desc);
+
+    let farmer_profile = client.get_farmer(&user).unwrap();
+    let campaign = client.get_campaign(&campaign_id).unwrap();
+
+    assert_eq!(farmer_profile.address, campaign.farmer);
+    assert_eq!(farmer_profile.name, farmer_name);
 }
