@@ -1,13 +1,9 @@
 import { Module } from '@nestjs/common';
 import { SorobanEventListenerService } from './soroban-event-listener.service';
+import { EventParserService } from './parsers/event-parser.service';
 
-/**
- * Indexer Module
- *
- * Responsible for listening to and processing blockchain events.
- */
 @Module({
-  providers: [SorobanEventListenerService],
-  exports: [SorobanEventListenerService],
+  providers: [SorobanEventListenerService, EventParserService],
+  exports: [SorobanEventListenerService, EventParserService],
 })
 export class IndexerModule {}

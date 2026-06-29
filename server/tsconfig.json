@@ -16,9 +16,12 @@
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,
-    "noImplicitAny": true,
+    "noImplicitAny": false,
     "strictBindCallApply": true,
     "forceConsistentCasingInFileNames": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@stellar/stellar-sdk/rpc": ["./node_modules/@stellar/stellar-sdk/lib/esm/rpc/index"]
+    }
   }
 }

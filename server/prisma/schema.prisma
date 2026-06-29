@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Campaign {
+  id              String   @id
+  farmer          String
+  title           String   @default("")
+  description     String   @default("")
+  targetAmount    BigInt?
+  tokenAddress    String?
+  deadline        BigInt?
+  status          String   @default("Active")
+  totalFunded     BigInt   @default(0)
+  escrowContract  String   @default("")
+  createdAt       BigInt
+  updatedAt       DateTime @default(now()) @updatedAt
+
+  investments Investment[]
+  orders      Order[]
+  transactions Transaction[]
+}
+
+model Investment {
+  id         String   @id
+  campaignId String
+  investor   String
+  amount     BigInt
+  txHash     String?
+  timestamp  BigInt?
+  createdAt  DateTime @default(now())
+
+  campaign   Campaign @relation(fields: [campaignId], references: [id])
+  user       User     @relation(fields: [investor], references: [address])
+}
+
+model Order {
+  id         String   @id
+  campaignId String?
+  buyer      String
+  amount     BigInt?
+  status     String   @default("Pending")
+  confirmedAt BigInt?
+  txHash     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
+}
+
+model User {
+  address     String   @id
+  firstSeenAt BigInt?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  investments  Investment[]
+  transactions Transaction[]
+}
+
+model Transaction {
+  id         String   @id
+  type       String
+  campaignId String?
+  userId     String?
+  amount     BigInt?
+  txHash     String?
+  status     String   @default("Pending")
+  timestamp  BigInt?
+  data       String   @default("{}")
+  createdAt  DateTime @default(now())
+
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
+  user       User?     @relation(fields: [userId], references: [address])
+}

@@ -1,6 +1,8 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PinoLogger, InjectPinoLogger } from 'nestjs-pino';
+import { EventParserService } from './parsers/event-parser.service';
+import type { RawSorobanEvent } from './types/soroban-events.types';
 
 @Injectable()
 export class SorobanEventListenerService implements OnModuleInit, OnModuleDestroy {
@@ -15,12 +17,16 @@ export class SorobanEventListenerService implements OnModuleInit, OnModuleDestro
     private readonly configService: ConfigService,
     @InjectPinoLogger(SorobanEventListenerService.name)
     private readonly logger: PinoLogger,
+    private readonly eventParser: EventParserService,
   ) {}
 
   async onModuleInit() {
     this.StellarSdk = await import('@stellar/stellar-sdk');
     const { Server } = await import('@stellar/stellar-sdk/rpc');
     const rpcUrl = this.configService.get<string>('soroban.rpcUrl');
+    if (!rpcUrl) {
+      throw new Error('SOROBAN_RPC_URL is required');
+    }
     this.rpcServer = new Server(rpcUrl);
     this.logger.info({ rpcUrl }, 'Soroban Event Listener initialized');
     await this.startListening();
@@ -65,8 +71,8 @@ export class SorobanEventListenerService implements OnModuleInit, OnModuleDestro
       if (response.events?.length > 0) {
         for (const event of response.events) {
           if (!this.processedEventIds.has(event.id)) {
-            this.logger.info({ eventId: event.id, type: event.type, contractId: event.contractId, ledger: event.ledger, txHash: event.txHash }, 'Event received');
             this.processedEventIds.add(event.id);
+            await this.processEvent(event);
           }
         }
       }
@@ -74,5 +80,25 @@ export class SorobanEventListenerService implements OnModuleInit, OnModuleDestro
     } catch (error) {
       this.logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Error polling events');
     }
+  }
+
+  private async processEvent(event: any): Promise<void> {
+    const rawEvent: RawSorobanEvent = {
+      id: event.id,
+      type: event.type,
+      contractId: event.contractId,
+      topic: event.topic ?? [],
+      value: event.value ?? {},
+      ledger: event.ledger,
+      ledgerClosedAt: event.ledgerClosedAt,
+      txHash: event.txHash,
+    };
+
+    await this.eventParser.processEvent(rawEvent);
+
+    this.logger.info(
+      { eventId: event.id, contractId: event.contractId, ledger: event.ledger, txHash: event.txHash },
+      'Event processed and persisted',
+    );
   }
 }
