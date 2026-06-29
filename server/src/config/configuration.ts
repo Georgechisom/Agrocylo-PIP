@@ -8,6 +8,10 @@ export interface AppConfig {
   logLevel: string;
 }
 
+export interface DbConfig {
+  url: string;
+}
+
 export interface SorobanConfig {
   rpcUrl: string;
   networkPassphrase: string;
@@ -17,11 +21,14 @@ export interface SorobanConfig {
   eventRetentionDays: number;
 }
 
-export default (): { app: AppConfig; soroban: SorobanConfig } => ({
+export default (): { app: AppConfig; db: DbConfig; soroban: SorobanConfig } => ({
   app: {
     nodeEnv: process.env.NODE_ENV ?? 'development',
     port: parseInt(process.env.PORT ?? '3000', 10),
     logLevel: process.env.LOG_LEVEL ?? 'info',
+  },
+  db: {
+    url: process.env.DATABASE_URL ?? 'file:./dev.db',
   },
   soroban: {
     rpcUrl:

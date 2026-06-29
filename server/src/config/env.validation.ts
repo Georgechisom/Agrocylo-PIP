@@ -12,6 +12,7 @@ export const envValidationSchema = Joi.object({
   LOG_LEVEL: Joi.string()
     .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal')
     .default('info'),
+  DATABASE_URL: Joi.string().default('file:./dev.db'),
   SOROBAN_RPC_URL: Joi.string().uri().required(),
   SOROBAN_NETWORK_PASSPHRASE: Joi.string().required(),
   PRODUCTION_ESCROW_CONTRACT_ID: Joi.string().allow('').default(''),
