@@ -1,0 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -moz-tab-size: 4;
+    tab-size: 4;
+  }
+
+  body {
+    margin: 0;
+    font-family: theme('fontFamily.body');
+    font-size: theme('fontSize.body');
+    color: theme('colors.soil.900');
+    background-color: theme('colors.soil.50');
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1 {
+    font-size: theme('fontSize.h1');
+    font-family: theme('fontFamily.heading');
+  }
+
+  h2 {
+    font-size: theme('fontSize.h2');
+    font-family: theme('fontFamily.heading');
+  }
+
+  h3 {
+    font-size: theme('fontSize.h3');
+    font-family: theme('fontFamily.heading');
+  }
+
+  h4 {
+    font-size: theme('fontSize.h4');
+    font-family: theme('fontFamily.heading');
+  }
+
+  img, svg, video, canvas {
+    display: block;
+    max-width: 100%;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}
+
+@layer components {
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold;
+  }
+}
