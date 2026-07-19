@@ -1,4 +1,4 @@
-import type { Config } from 'tailwindcss'
+import type { Config } from 'tailwindcss';
 
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -109,14 +109,28 @@ export default {
         mono: ['ui-monospace', 'Consolas', 'SF Mono', 'monospace'],
       },
       fontSize: {
-        'h1': ['2.5rem', { lineHeight: '1.2', fontWeight: '700', letterSpacing: '-0.02em' }],
-        'h2': ['2rem', { lineHeight: '1.25', fontWeight: '600', letterSpacing: '-0.01em' }],
-        'h3': ['1.5rem', { lineHeight: '1.3', fontWeight: '600' }],
-        'h4': ['1.25rem', { lineHeight: '1.4', fontWeight: '600' }],
-        'body': ['1rem', { lineHeight: '1.6' }],
+        h1: [
+          '2.5rem',
+          { lineHeight: '1.2', fontWeight: '700', letterSpacing: '-0.02em' },
+        ],
+        h2: [
+          '2rem',
+          { lineHeight: '1.25', fontWeight: '600', letterSpacing: '-0.01em' },
+        ],
+        h3: ['1.5rem', { lineHeight: '1.3', fontWeight: '600' }],
+        h4: ['1.25rem', { lineHeight: '1.4', fontWeight: '600' }],
+        body: ['1rem', { lineHeight: '1.6' }],
         'body-sm': ['0.875rem', { lineHeight: '1.5' }],
-        'caption': ['0.75rem', { lineHeight: '1.5' }],
-        'label': ['0.75rem', { lineHeight: '1', fontWeight: '600', letterSpacing: '0.05em', textTransform: 'uppercase' }],
+        caption: ['0.75rem', { lineHeight: '1.5' }],
+        label: [
+          '0.75rem',
+          {
+            lineHeight: '1',
+            fontWeight: '600',
+            letterSpacing: '0.05em',
+            textTransform: 'uppercase',
+          },
+        ],
       },
       spacing: {
         '18': '4.5rem',
@@ -124,13 +138,15 @@ export default {
         '128': '32rem',
       },
       borderRadius: {
-        'campaign': '0.75rem',
+        campaign: '0.75rem',
       },
       boxShadow: {
-        'campaign': '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06)',
-        'campaign-hover': '0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.05)',
+        campaign:
+          '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06)',
+        'campaign-hover':
+          '0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.05)',
       },
     },
   },
   plugins: [],
-} satisfies Config
+} satisfies Config;

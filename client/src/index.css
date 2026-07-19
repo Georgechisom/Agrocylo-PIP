@@ -47,7 +47,10 @@
     font-family: theme('fontFamily.heading');
   }
 
-  img, svg, video, canvas {
+  img,
+  svg,
+  video,
+  canvas {
     display: block;
     max-width: 100%;
   }

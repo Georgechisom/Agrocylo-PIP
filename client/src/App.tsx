@@ -49,7 +49,9 @@ const STATUS_MAP = {
   },
 } as const;
 
-const PALETTE_SHADES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950] as const;
+const PALETTE_SHADES = [
+  50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950,
+] as const;
 
 const PALETTE_MAP: Record<string, Record<number, string>> = {
   soil: {
@@ -124,14 +126,17 @@ function App() {
         <p className="text-label text-soil-500">Agrocylo PIP</p>
         <h1 className="mt-2 text-soil-950">Design Foundations</h1>
         <p className="mt-3 text-body text-soil-600">
-          Tailwind CSS utility classes — palette, status tokens, and typographic scale.
+          Tailwind CSS utility classes — palette, status tokens, and typographic
+          scale.
         </p>
       </header>
 
       {/* ── Typography scale ── */}
       <section className="mb-12 rounded-campaign border border-soil-200 bg-white p-8 shadow-campaign">
         <h2 className="text-soil-900">Typography Scale</h2>
-        <p className="mt-2 text-body-sm text-soil-500">Headings, body, and caption sizes.</p>
+        <p className="mt-2 text-body-sm text-soil-500">
+          Headings, body, and caption sizes.
+        </p>
 
         <div className="mt-6 space-y-4">
           <div>
@@ -187,27 +192,29 @@ function App() {
         </p>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          {(Object.keys(STATUS_MAP) as (keyof typeof STATUS_MAP)[]).map((status) => {
-            const c = STATUS_MAP[status];
-            return (
-              <div
-                key={status}
-                className={`flex items-center justify-between rounded-lg ${c.bgLight} ${c.border} border px-4 py-3`}
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`flex h-8 w-8 items-center justify-center rounded-lg ${c.bg} text-xs font-bold text-white`}
-                  >
-                    {status[0]}
+          {(Object.keys(STATUS_MAP) as (keyof typeof STATUS_MAP)[]).map(
+            (status) => {
+              const c = STATUS_MAP[status];
+              return (
+                <div
+                  key={status}
+                  className={`flex items-center justify-between rounded-lg ${c.bgLight} ${c.border} border px-4 py-3`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`flex h-8 w-8 items-center justify-center rounded-lg ${c.bg} text-xs font-bold text-white`}
+                    >
+                      {status[0]}
+                    </div>
+                    <span className="text-body font-semibold text-soil-900">
+                      {status}
+                    </span>
                   </div>
-                  <span className="text-body font-semibold text-soil-900">
-                    {status}
-                  </span>
+                  <StatusBadge label={status} />
                 </div>
-                <StatusBadge label={status} />
-              </div>
-            );
-          })}
+              );
+            },
+          )}
         </div>
 
         <div className="mt-8 rounded-lg bg-soil-50 p-5">
@@ -237,29 +244,37 @@ function App() {
           Soil, leaf, amber, and bark scales for the agricultural theme.
         </p>
 
-        {(Object.keys(PALETTE_MAP) as (keyof typeof PALETTE_MAP)[]).map((palette) => (
-          <div key={palette} className="mt-5">
-            <p className="text-caption font-semibold text-soil-500 capitalize">{palette}</p>
-            <div className="mt-1 flex gap-1">
-              {PALETTE_SHADES.map((shade) => (
-                <div key={shade} className="flex flex-col items-center">
-                  <div
-                    className={`h-8 w-8 rounded ${PALETTE_MAP[palette][shade]}`}
-                    title={`${palette}-${shade}`}
-                  />
-                  <span className="mt-0.5 text-[10px] leading-3 text-soil-400">{shade}</span>
-                </div>
-              ))}
+        {(Object.keys(PALETTE_MAP) as (keyof typeof PALETTE_MAP)[]).map(
+          (palette) => (
+            <div key={palette} className="mt-5">
+              <p className="text-caption font-semibold text-soil-500 capitalize">
+                {palette}
+              </p>
+              <div className="mt-1 flex gap-1">
+                {PALETTE_SHADES.map((shade) => (
+                  <div key={shade} className="flex flex-col items-center">
+                    <div
+                      className={`h-8 w-8 rounded ${PALETTE_MAP[palette][shade]}`}
+                      title={`${palette}-${shade}`}
+                    />
+                    <span className="mt-0.5 text-[10px] leading-3 text-soil-400">
+                      {shade}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ),
+        )}
       </section>
 
       <footer className="mt-12 border-t border-soil-200 pt-6 text-center">
-        <p className="text-caption text-soil-400">Agrocylo PIP — Design Foundations</p>
+        <p className="text-caption text-soil-400">
+          Agrocylo PIP — Design Foundations
+        </p>
       </footer>
     </div>
   );
 }
 
-export default App
+export default App;
