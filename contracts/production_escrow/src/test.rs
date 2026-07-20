@@ -295,6 +295,113 @@ fn test_fund_campaign_non_active_status_fails() {
 
 // ─── configure_tranches tests ────────────────────────────────────────────────
 
+#[test]
+#[should_panic]
+fn test_receive_contribution_unauthorized_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let investor = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &1u64,
+        &farmer,
+        &1000i128,
+        &token,
+        &1000000u64,
+        &Symbol::new(&env, "corn"),
+    );
+
+    env.mock_auths(&[]);
+    client.receive_contribution(&1u64, &investor, &500i128);
+}
+
+#[test]
+#[should_panic]
+fn test_complete_funding_unauthorized_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let investor = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &1u64,
+        &farmer,
+        &1000i128,
+        &token,
+        &1000000u64,
+        &Symbol::new(&env, "corn"),
+    );
+    client.receive_contribution(&1u64, &investor, &1000i128);
+
+    env.mock_auths(&[]);
+    client.complete_funding(&1u64, &1000i128);
+}
+
+#[test]
+#[should_panic(expected = "total funded does not match recorded funding")]
+fn test_complete_funding_rejects_mismatched_total() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let investor = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &1u64,
+        &farmer,
+        &1000i128,
+        &token,
+        &1000000u64,
+        &Symbol::new(&env, "corn"),
+    );
+    client.receive_contribution(&1u64, &investor, &600i128);
+    client.complete_funding(&1u64, &1000i128);
+}
+
+#[test]
+#[should_panic(expected = "campaign target not reached")]
+fn test_complete_funding_rejects_underfunded_campaign() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let investor = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &1u64,
+        &farmer,
+        &1000i128,
+        &token,
+        &1000000u64,
+        &Symbol::new(&env, "corn"),
+    );
+    client.receive_contribution(&1u64, &investor, &600i128);
+    client.complete_funding(&1u64, &600i128);
+}
+
 fn make_tranche(env: &Env, amount: i128, milestone: &str) -> Tranche {
     Tranche {
         amount,

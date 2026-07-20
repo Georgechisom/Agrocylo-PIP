@@ -130,18 +130,29 @@ impl ProductionEscrowContract {
         emit_contribution_received(&env, campaign_id, investor, amount);
     }
 
-    /// Legacy path kept for existing tests — does not do a token transfer.
+    /// Admin-only reconciliation path for contributions verified off-chain.
+    /// This does not transfer tokens; use fund_campaign for on-chain funding.
     pub fn receive_contribution(env: Env, campaign_id: u64, investor: Address, amount: i128) {
         if amount <= 0 {
             panic!("amount must be positive");
         }
 
+        require_admin(&env);
+
         let mut campaign = storage::get_campaign(&env, campaign_id);
-        if campaign.status != CampaignStatus::Active {
+        if campaign.status != CampaignStatus::Active
+            && campaign.status != CampaignStatus::Funding
+        {
             panic!("campaign not accepting contributions");
         }
 
+        let remaining = campaign.target_amount - campaign.total_funded;
+        if amount > remaining {
+            panic!("contribution exceeds remaining target");
+        }
+
         campaign.total_funded += amount;
+        campaign.status = CampaignStatus::Funding;
         storage::set_campaign(&env, campaign_id, &campaign);
 
         let contributed =
@@ -153,9 +164,19 @@ impl ProductionEscrowContract {
     }
 
     pub fn complete_funding(env: Env, campaign_id: u64, total_funded: i128) {
+        require_admin(&env);
+
         let mut campaign = storage::get_campaign(&env, campaign_id);
-        if campaign.status != CampaignStatus::Active {
-            panic!("campaign not active");
+        if campaign.status != CampaignStatus::Active
+            && campaign.status != CampaignStatus::Funding
+        {
+            panic!("campaign not accepting contributions");
+        }
+        if total_funded != campaign.total_funded {
+            panic!("total funded does not match recorded funding");
+        }
+        if campaign.total_funded < campaign.target_amount {
+            panic!("campaign target not reached");
         }
 
         campaign.status = CampaignStatus::Funded;
