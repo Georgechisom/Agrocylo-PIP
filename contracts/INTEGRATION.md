@@ -51,6 +51,22 @@ In the intended integration, `ProductionEscrowContract` (or an authorized backen
 
 > **Rule of thumb:** Financial and dispute state lives in `ProductionEscrowContract`. Audit and access-control state lives in `RegistryContract`.
 
+## Rounding / Dust Policy
+
+Both `claim_refund` and `claim_return` compute the investor's pro-rata share via integer division:
+
+```
+share = contributed * pool_amount / total_funded
+```
+
+where `pool_amount` is either `refundable` or `returnable`. This truncates toward zero, meaning each investor may receive a few stroops less than their exact fractional entitlement. The truncated "dust" remains permanently in the contract — there is no sweep or recovery function.
+
+**Integrator guidance:**
+
+- `sum(all claimed refunds) <= refundable` and `sum(all claimed returns) <= returnable` always hold.
+- The residual `pool_amount - sum(claimed)` represents accumulated truncation dust and should be expected in analytics or campaign close-out reporting.
+- For typical campaign sizes the dust per investor is at most 1 stroop; accumulated dust across many investors is negligible in practice.
+
 ## Campaign Lifecycle
 
 The logical lifecycle maps to the contract statuses as follows:

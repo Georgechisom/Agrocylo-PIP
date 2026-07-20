@@ -1147,7 +1147,7 @@ fn test_mark_failed_settled_campaign_fails() {
     s.client.mark_failed(&s.campaign_id);
 }
 
-// ─── claim_refund for Failed campaign tests ──────────────────────────────────
+// ─── claim_refund after Failed campaign tests ──────────────────────────────────
 
 #[test]
 fn test_claim_refund_after_failed_returns_tokens() {
@@ -1238,4 +1238,140 @@ fn test_double_refund_is_blocked() {
 
     // Second claim must fail.
     assert!(client.try_claim_refund(&campaign_id, &investor).is_err());
+}
+
+// ─── pro-rata dust / truncation tests ────────────────────────────────────────
+
+/// Demonstrates integer-division truncation ("dust") in claim_refund.
+/// With total_funded=1000, refundable=999, and contributions of 334 and 333,
+/// the truncated shares (334*999/1000=333 and 333*999/1000=332) leave stroops
+/// of dust permanently stranded in the contract.
+#[test]
+fn test_claim_refund_truncation_dust_remains_in_contract() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let investor1 = Address::generate(&env);
+    let investor2 = Address::generate(&env);
+    let investor3 = Address::generate(&env);
+    let campaign_id = 1u64;
+
+    let (token_address, sac) = create_token(&env, &admin);
+    // Total funded: 334 + 333 + 333 = 1000
+    sac.mint(&investor1, &334i128);
+    sac.mint(&investor2, &333i128);
+    sac.mint(&investor3, &333i128);
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &campaign_id,
+        &farmer,
+        &1000i128,
+        &token_address,
+        &1000000u64,
+        &Symbol::new(&env, "wheat"),
+    );
+    client.fund_campaign(&campaign_id, &investor1, &334i128);
+    client.fund_campaign(&campaign_id, &investor2, &333i128);
+    client.fund_campaign(&campaign_id, &investor3, &333i128);
+
+    // Partial settlement via dispute: 1 stroop to farmer, 999 refundable.
+    client.open_dispute(
+        &campaign_id,
+        &investor1,
+        &Symbol::new(&env, "Delay"),
+    );
+    client.resolve_dispute(
+        &campaign_id,
+        &DisputeResolution::PartialSettlement,
+        &1i128,
+    );
+
+    let token = TokenClient::new(&env, &token_address);
+    let inv1_before = token.balance(&investor1);
+    let inv2_before = token.balance(&investor2);
+    let inv3_before = token.balance(&investor3);
+    let contract_before = token.balance(&contract_id);
+
+    // claim_refund: 334 * 999 / 1000 = 333 (truncated from 333.666)
+    client.claim_refund(&campaign_id, &investor1);
+    // claim_refund: 333 * 999 / 1000 = 332 (truncated from 332.667)
+    client.claim_refund(&campaign_id, &investor2);
+    // claim_refund: 333 * 999 / 1000 = 332 (truncated from 332.667)
+    client.claim_refund(&campaign_id, &investor3);
+
+    let total_claimed = (token.balance(&investor1) - inv1_before)
+        + (token.balance(&investor2) - inv2_before)
+        + (token.balance(&investor3) - inv3_before);
+
+    // 333 + 332 + 332 = 997 — two stroops of dust remain in the contract.
+    assert_eq!(total_claimed, 997);
+
+    let contract_after = token.balance(&contract_id);
+    assert_eq!(contract_before - contract_after, 997);
+    // 1000 - 997 = 3 stroops of dust remain permanently stranded.
+    assert_eq!(contract_after, 3);
+}
+
+/// Same dust demonstration for claim_return in a Settled campaign.
+#[test]
+fn test_claim_return_truncation_dust_remains_in_contract() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ProductionEscrowContract);
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let investor1 = Address::generate(&env);
+    let investor2 = Address::generate(&env);
+    let investor3 = Address::generate(&env);
+    let campaign_id = 1u64;
+
+    let (token_address, sac) = create_token(&env, &admin);
+    sac.mint(&investor1, &334i128);
+    sac.mint(&investor2, &333i128);
+    sac.mint(&investor3, &333i128);
+
+    client.initialize(&admin);
+    client.create_campaign(
+        &campaign_id,
+        &farmer,
+        &1000i128,
+        &token_address,
+        &1000000u64,
+        &Symbol::new(&env, "rice"),
+    );
+    client.fund_campaign(&campaign_id, &investor1, &334i128);
+    client.fund_campaign(&campaign_id, &investor2, &333i128);
+    client.fund_campaign(&campaign_id, &investor3, &333i128);
+
+    // Settle with farmer_payout=1, returnable=999.
+    client.report_harvest(&campaign_id, &farmer, &Symbol::new(&env, "ok"));
+    client.settle_campaign(&campaign_id, &farmer, &1i128);
+
+    let token = TokenClient::new(&env, &token_address);
+    let inv1_before = token.balance(&investor1);
+    let inv2_before = token.balance(&investor2);
+    let inv3_before = token.balance(&investor3);
+
+    // 334 * 999 / 1000 = 333
+    client.claim_return(&campaign_id, &investor1);
+    // 333 * 999 / 1000 = 332
+    client.claim_return(&campaign_id, &investor2);
+    // 333 * 999 / 1000 = 332
+    client.claim_return(&campaign_id, &investor3);
+
+    let total_claimed = (token.balance(&investor1) - inv1_before)
+        + (token.balance(&investor2) - inv2_before)
+        + (token.balance(&investor3) - inv3_before);
+
+    // Same as refund case: 333 + 332 + 332 = 997, dust = 3 stroops.
+    assert_eq!(total_claimed, 997);
 }
