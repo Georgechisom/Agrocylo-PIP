@@ -380,6 +380,13 @@ impl ProductionEscrowContract {
     }
 
     /// Investor claims their pro-rata refund from a Resolved or Failed campaign.
+    ///
+    /// **Rounding / dust policy:** The pro-rata share is computed via integer
+    /// division (`contributed * refundable / total_funded`), which truncates
+    /// toward zero. Any fractional stroop "dust" lost to truncation remains
+    /// permanently in the contract — there is no sweep function to reclaim it.
+    /// Across many investors the accumulated dust is typically negligible, but
+    /// integrators should be aware that `sum(claimed) <= refundable`.
     pub fn claim_refund(env: Env, campaign_id: u64, investor: Address) {
         let campaign = storage::get_campaign(&env, campaign_id);
         if campaign.status != CampaignStatus::Resolved
@@ -468,6 +475,13 @@ impl ProductionEscrowContract {
     }
 
     /// Investor claims their pro-rata share of investor returns from a Settled campaign.
+    ///
+    /// **Rounding / dust policy:** The pro-rata share is computed via integer
+    /// division (`contributed * returnable / total_funded`), which truncates
+    /// toward zero. Any fractional stroop "dust" lost to truncation remains
+    /// permanently in the contract — there is no sweep function to reclaim it.
+    /// Across many investors the accumulated dust is typically negligible, but
+    /// integrators should be aware that `sum(claimed) <= returnable`.
     pub fn claim_return(env: Env, campaign_id: u64, investor: Address) {
         let campaign = storage::get_campaign(&env, campaign_id);
         if campaign.status != CampaignStatus::Settled {
