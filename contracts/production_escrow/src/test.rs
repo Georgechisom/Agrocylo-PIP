@@ -481,6 +481,67 @@ fn test_release_tranche_unauthorized_non_admin_fails() {
     s.client.release_tranche(&s.campaign_id, &s.farmer, &100i128);
 }
 
+#[test]
+#[should_panic(expected = "no matching unreleased tranche for this amount")]
+fn test_release_tranche_amount_not_matching_any_tranche_fails() {
+    let s = funded_campaign();
+    let mut tranches: Vec<Tranche> = Vec::new(&s.env);
+    tranches.push_back(make_tranche(&s.env, 400, "planting"));
+    tranches.push_back(make_tranche(&s.env, 300, "midseason"));
+    tranches.push_back(make_tranche(&s.env, 300, "harvest"));
+    s.client.configure_tranches(&s.campaign_id, &tranches);
+
+    // 250 does not match any configured tranche amount.
+    s.client.release_tranche(&s.campaign_id, &s.farmer, &250i128);
+}
+
+/// When an amount matches a tranche that has already been released, the
+/// release logic skips it and looks for the next unreleased tranche of the
+/// same amount. If one exists, the release succeeds; if none remain, it panics.
+#[test]
+fn test_release_tranche_already_released_amount_skips_to_next_match() {
+    let s = funded_campaign();
+    let mut tranches: Vec<Tranche> = Vec::new(&s.env);
+    tranches.push_back(make_tranche(&s.env, 300, "planting"));
+    tranches.push_back(make_tranche(&s.env, 300, "midseason"));
+    tranches.push_back(make_tranche(&s.env, 400, "harvest"));
+    s.client.configure_tranches(&s.campaign_id, &tranches);
+
+    // Release the first 300 tranche.
+    s.client.release_tranche(&s.campaign_id, &s.farmer, &300i128);
+    let stored = s.client.get_tranches(&s.campaign_id);
+    assert!(stored.get(0).unwrap().released);
+    assert!(!stored.get(1).unwrap().released);
+    assert!(!stored.get(2).unwrap().released);
+
+    // Release 300 again — should skip the first (already released) tranche
+    // and mark the second 300 tranche as released.
+    s.client.release_tranche(&s.campaign_id, &s.farmer, &300i128);
+    let stored = s.client.get_tranches(&s.campaign_id);
+    assert!(stored.get(0).unwrap().released);
+    assert!(stored.get(1).unwrap().released);
+    assert!(!stored.get(2).unwrap().released);
+}
+
+/// When multiple tranches share the same amount, release_tranche always
+/// marks the earliest unreleased tranche first.
+#[test]
+fn test_release_tranche_duplicate_amounts_releases_earliest_first() {
+    let s = funded_campaign();
+    let mut tranches: Vec<Tranche> = Vec::new(&s.env);
+    tranches.push_back(make_tranche(&s.env, 500, "phase1"));
+    tranches.push_back(make_tranche(&s.env, 500, "phase2"));
+    s.client.configure_tranches(&s.campaign_id, &tranches);
+
+    s.client.release_tranche(&s.campaign_id, &s.farmer, &500i128);
+
+    let stored = s.client.get_tranches(&s.campaign_id);
+    // The first (earliest) tranche should be marked, not the second.
+    assert!(stored.get(0).unwrap().released);
+    assert!(!stored.get(1).unwrap().released);
+    assert_eq!(stored.get(0).unwrap().milestone, Symbol::new(&s.env, "phase1"));
+}
+
 // ─── existing tests (unchanged) ──────────────────────────────────────────────
 
 #[test]
