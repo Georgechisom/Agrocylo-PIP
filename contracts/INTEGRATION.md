@@ -16,8 +16,9 @@ In the intended integration, `ProductionEscrowContract` (or an authorized backen
 | Responsibility | Implementation |
 |----------------|----------------|
 | Campaign creation & metadata | `create_campaign` |
-| Receiving investor contributions | `receive_contribution` |
-| Marking a campaign as fully funded | `complete_funding` |
+| Receiving investor token contributions | `fund_campaign` |
+| Reconciling externally verified contributions | `receive_contribution` (admin only) |
+| Marking a reconciled campaign as fully funded | `complete_funding` (admin only) |
 | Releasing tranches to the farmer | `release_tranche` |
 | Recording harvest milestones | `report_harvest` |
 | Opening & resolving disputes | `open_dispute`, `resolve_dispute` |
@@ -57,7 +58,7 @@ The logical lifecycle maps to the contract statuses as follows:
 | Logical Phase | Contract Status | Triggering Escrow Method |
 |---------------|-----------------|--------------------------|
 | **Funding** | `Active` | `create_campaign` |
-| **Funded** | `Funded` | `complete_funding` |
+| **Funded** | `Funded` | `fund_campaign` when target is reached, or admin `complete_funding` after authorized reconciliation |
 | **InProduction** | `Funded` | `release_tranche` (one or more calls) |
 | **Harvested** | `Funded` | `report_harvest` |
 | **Settled** | `Settled` | `settle_campaign` |
@@ -99,7 +100,9 @@ The table below shows the expected cross-contract calls. After each escrow actio
 | Escrow Action | Registry Call | `ActivityAction` | Actor |
 |---------------|---------------|------------------|-------|
 | `create_campaign` | `record_activity(campaign_id, farmer, CampaignCreated)` | `CampaignCreated` | Farmer |
-| `complete_funding` | `record_activity(campaign_id, farmer, CampaignFunded)` | `CampaignFunded` | Farmer or Admin |
+| `fund_campaign` | `record_activity(campaign_id, investor, CampaignStatusChanged)` | `CampaignStatusChanged` | Investor |
+| `receive_contribution` | `record_activity(campaign_id, investor, CampaignStatusChanged)` | `CampaignStatusChanged` | Admin, after off-chain funds are verified |
+| `complete_funding` | `record_activity(campaign_id, farmer, CampaignFunded)` | `CampaignFunded` | Admin |
 | `release_tranche` | `record_activity(campaign_id, recipient, FundsReleased)` | `FundsReleased` | Farmer (recipient) |
 | `report_harvest` | `record_activity(campaign_id, farmer, HarvestReported)` | `HarvestReported` | Farmer |
 | `open_dispute` | `record_activity(campaign_id, opener, DisputeInitiated)` | `DisputeInitiated` | Investor / Farmer / Admin |
@@ -168,32 +171,35 @@ Farmer
 ```text
 Investor 1
   |
-  |--(1a)--> ProductionEscrowContract::receive_contribution(
+  |--(1a)--> ProductionEscrowContract::fund_campaign(
   |             campaign_id, investor1, 600
   |          )
+  |          [Investor authorizes token transfer into escrow]
   |          [Escrow updates total_funded & contribution]
   |          [Escrow emits ContributionReceived]
 
 Investor 2
   |
-  |--(1b)--> ProductionEscrowContract::receive_contribution(
+  |--(1b)--> ProductionEscrowContract::fund_campaign(
   |             campaign_id, investor2, 400
   |          )
+  |          [Investor authorizes token transfer into escrow]
   |          [Escrow updates total_funded & contribution]
+  |          [Escrow reaches target and sets status = Funded]
   |          [Escrow emits ContributionReceived]
+  |          [Escrow emits CampaignFunded]
 
-Backend / Admin
+Backend / Indexer
   |
-  |--(2)--> ProductionEscrowContract::complete_funding(
-  |            campaign_id, total_funded=1000
-  |         )
-  |         [Escrow sets status = Funded]
-  |         [Escrow emits CampaignFunded]
-  |
-  |--(3)--> RegistryContract::record_activity(
+  |--(2)--> RegistryContract::record_activity(
   |            campaign_id, farmer, ActivityAction::CampaignFunded
   |         )
 ```
+
+For externally settled funding that has already been verified off-chain, an admin may call
+`receive_contribution` to reconcile each investor's contribution without moving tokens. The
+admin may then call `complete_funding(campaign_id, total_funded)` only when `total_funded`
+equals the campaign's stored `total_funded` and the stored total has reached the target.
 
 ### 3. Settlement (Happy Path)
 
@@ -265,8 +271,9 @@ Investor 2
 
 - `initialize(env: Env, admin: Address)`
 - `create_campaign(env: Env, campaign_id: u64, farmer: Address, target_amount: i128, token_address: Address, deadline: u64, harvest_metadata: Symbol)`
-- `receive_contribution(env: Env, campaign_id: u64, investor: Address, amount: i128)`
-- `complete_funding(env: Env, campaign_id: u64, total_funded: i128)`
+- `fund_campaign(env: Env, campaign_id: u64, investor: Address, amount: i128)`
+- `receive_contribution(env: Env, campaign_id: u64, investor: Address, amount: i128)` - admin-only reconciliation for off-chain verified funds
+- `complete_funding(env: Env, campaign_id: u64, total_funded: i128)` - admin-only transition that verifies the stored total has reached the target
 - `release_tranche(env: Env, campaign_id: u64, recipient: Address, amount: i128)`
 - `report_harvest(env: Env, campaign_id: u64, farmer: Address)`
 - `open_dispute(env: Env, campaign_id: u64, opener: Address, reason: Symbol)`
