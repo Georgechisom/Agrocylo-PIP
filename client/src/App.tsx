@@ -1,3 +1,5 @@
+import Header from './components/Header';
+
 const STATUS_MAP = {
   Active: {
     bg: 'bg-status-active',
@@ -121,8 +123,10 @@ function StatusBadge({ label }: { label: keyof typeof STATUS_MAP }) {
 function App() {
   return (
     <div className="mx-auto min-h-screen max-w-5xl px-6 py-12">
+      <Header />
+
       {/* ── Headings & Typography scale ── */}
-      <header className="mb-12 text-center">
+      <header className="mb-12 mt-8 text-center">
         <p className="text-label text-soil-500">Agrocylo PIP</p>
         <h1 className="mt-2 text-soil-950">Design Foundations</h1>
         <p className="mt-3 text-body text-soil-600">
