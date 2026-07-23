@@ -11,10 +11,7 @@
     "format": "prettier --write \"*.{ts,tsx,js,cjs,mjs,json,css}\" \"src/**/*.{ts,tsx,css,json}\"",
     "format:check": "prettier --check \"*.{ts,tsx,js,cjs,mjs,json,css}\" \"src/**/*.{ts,tsx,css,json}\"",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test": "vitest run"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -30,7 +27,8 @@
     "@stellar/stellar-sdk": "^16.0.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-router-dom": "^7.18.1"
+    "react-router-dom": "^7.18.1",
+    "recharts": "^3.10.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.0",
