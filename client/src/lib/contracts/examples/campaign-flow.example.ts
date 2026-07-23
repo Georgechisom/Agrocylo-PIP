@@ -3,11 +3,7 @@
  * Demonstrates creating, funding, and managing a campaign
  */
 
-import {
-  ProductionEscrowClient,
-  AmountFormatter,
-  CampaignStatus,
-} from '../index';
+import { ProductionEscrowClient, AmountFormatter } from '../index';
 
 // Initialize formatter for USDC (7 decimals)
 const formatter = new AmountFormatter(7);

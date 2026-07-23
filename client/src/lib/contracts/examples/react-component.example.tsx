@@ -1,4 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+/**
+ * Example: React component using the ProductionEscrow hook
+ * Demonstrates wallet integration and error handling
+ *
+ * Note: This is an example file for demonstration purposes.
+ */
+
+/* eslint-disable react-hooks/set-state-in-effect */
+
+import { useState, useEffect, useCallback } from 'react';
 import { useProductionEscrow } from '../useProductionEscrow';
 import { AmountFormatter, CampaignStatus } from '../types';
 import type { Campaign } from '../types';
